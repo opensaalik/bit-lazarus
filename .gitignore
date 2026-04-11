@@ -4,3 +4,12 @@ node_modules/
 dist/
 data/
 *.log
+Both parties lock a bond (separate hold invoices)
+    ↓
+Hunter delivers actual data (torrent seeding / file transfer)
+    ↓
+Payer downloads and verifies the file hash matches the torrent's piece hashes
+    ↓
+If delivery correct: reward escrow settled (hunter gets paid), both bonds cancelled (returned)
+If hunter cheats:    reward escrow cancelled (payer refunded), hunter's bond slashed (payer keeps it)
+If payer cheats:     reward escrow settled (hunter gets paid), payer's bond slashed (hunter keeps it)

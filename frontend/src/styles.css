@@ -344,6 +344,169 @@ input::placeholder {
   color: #7de5d8;
 }
 
+.drop-zone {
+  grid-column: 1 / -1;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 28px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  text-align: center;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: #7de5d8;
+  background: rgba(125, 229, 216, 0.04);
+}
+
+.drop-zone.has-file {
+  border-style: solid;
+  border-color: rgba(125, 229, 216, 0.3);
+  text-align: left;
+  cursor: default;
+}
+
+.drop-zone-prompt p {
+  margin: 4px 0;
+}
+
+.torrent-preview h3 {
+  margin: 0 0 12px;
+  color: #7de5d8;
+}
+
+.torrent-preview .detail-grid {
+  margin-bottom: 8px;
+}
+
+.file-list {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.file-list summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.file-list ul {
+  list-style: none;
+  padding: 8px 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.file-list code {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.torrent-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.input-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.input-divider::before,
+.input-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.magnet-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.magnet-field {
+  flex: 1;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.torrent-preview {
+  border: 1px solid rgba(125, 229, 216, 0.25);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.torrent-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.torrent-preview-head h3 {
+  margin: 0;
+  color: #7de5d8;
+}
+
+.clear-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.clear-button:hover {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff6b6b;
+}
+
+.muted-input {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.bounty-sats {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.bond-chip {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 180, 50, 0.15);
+  color: #ffb432;
+  white-space: nowrap;
+}
+
 @media (max-width: 1120px) {
   .hero-grid,
   .dashboard-grid {

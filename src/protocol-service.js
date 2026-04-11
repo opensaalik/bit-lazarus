@@ -59,6 +59,7 @@ export class ProtocolService {
   constructor({
     dataDir = path.resolve("data", "protocol"),
     verifier,
+    escrowService = null,
     now = () => new Date().toISOString(),
     verificationSessionTtlMs = 15 * 60 * 1000,
     bondDeadlineMs = 30 * 60 * 1000,
@@ -72,6 +73,7 @@ export class ProtocolService {
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "protocol.json");
     this.verifier = verifier;
+    this.escrowService = escrowService;
     this.now = now;
     this.verificationSessionTtlMs = verificationSessionTtlMs;
     this.bondDeadlineMs = bondDeadlineMs;
@@ -310,6 +312,146 @@ export class ProtocolService {
     return contract;
   }
 
+  async createBondEscrows({ contractId, bondAmountSats }) {
+    assertString(contractId, "contractId");
+
+    if (!this.escrowService) {
+      throw new Error("escrowService is required for bond management");
+    }
+
+    const contract = this.requireDeliveryContract(contractId);
+
+    if (contract.payerBondEscrowId || contract.hunterBondEscrowId) {
+      throw new Error("bond escrows already exist for this contract");
+    }
+
+    const payerBondEscrow = await this.escrowService.createEscrow({
+      escrowId: `bond-payer-${contractId}`,
+      buyerId: contract.payerUserId,
+      sellerId: `contract:${contractId}`,
+      amountSats: bondAmountSats,
+      description: `Payer collateral bond for contract ${contractId}`,
+      metadata: { kind: "payer-bond", contractId },
+    });
+
+    const hunterBondEscrow = await this.escrowService.createEscrow({
+      escrowId: `bond-hunter-${contractId}`,
+      buyerId: contract.hunterUserId,
+      sellerId: `contract:${contractId}`,
+      amountSats: bondAmountSats,
+      description: `Hunter collateral bond for contract ${contractId}`,
+      metadata: { kind: "hunter-bond", contractId },
+    });
+
+    contract.payerBondEscrowId = payerBondEscrow.id;
+    contract.hunterBondEscrowId = hunterBondEscrow.id;
+    contract.payerBondStatus = "AWAITING_FUNDING";
+    contract.hunterBondStatus = "AWAITING_FUNDING";
+    contract.bondAmountSats = bondAmountSats;
+    contract.updatedAt = this.now();
+    await this.persist();
+
+    return {
+      contract,
+      payerBondEscrow,
+      hunterBondEscrow,
+    };
+  }
+
+  async syncBondStatus({ contractId }) {
+    assertString(contractId, "contractId");
+
+    if (!this.escrowService) {
+      throw new Error("escrowService is required for bond management");
+    }
+
+    const contract = this.requireDeliveryContract(contractId);
+
+    if (contract.payerBondEscrowId) {
+      const payerEscrow = await this.escrowService.syncEscrow(contract.payerBondEscrowId);
+      contract.payerBondStatus = payerEscrow.status;
+    }
+
+    if (contract.hunterBondEscrowId) {
+      const hunterEscrow = await this.escrowService.syncEscrow(contract.hunterBondEscrowId);
+      contract.hunterBondStatus = hunterEscrow.status;
+    }
+
+    if (contract.payerBondStatus === "FUNDED" && contract.hunterBondStatus === "FUNDED") {
+      contract.state = "DELIVERY_IN_PROGRESS";
+    }
+
+    contract.updatedAt = this.now();
+    await this.persist();
+    return contract;
+  }
+
+  async resolveContract({ contractId, outcome }) {
+    assertString(contractId, "contractId");
+
+    if (!this.escrowService) {
+      throw new Error("escrowService is required for resolution");
+    }
+
+    const contract = this.requireDeliveryContract(contractId);
+
+    if (outcome === "SUCCESS") {
+      if (contract.rewardEscrowId) {
+        await this.escrowService.releaseEscrow(contract.rewardEscrowId);
+      }
+      if (contract.payerBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.payerBondEscrowId);
+      }
+      if (contract.hunterBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.hunterBondEscrowId);
+      }
+      contract.state = "RESOLVED_SUCCESS";
+      contract.resolutionReadiness = "RESOLVED";
+    } else if (outcome === "HUNTER_FAULT") {
+      if (contract.rewardEscrowId) {
+        await this.escrowService.cancelEscrow(contract.rewardEscrowId);
+      }
+      if (contract.payerBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.payerBondEscrowId);
+      }
+      if (contract.hunterBondEscrowId) {
+        await this.escrowService.releaseEscrow(contract.hunterBondEscrowId);
+      }
+      contract.state = "RESOLVED_HUNTER_FAULT";
+      contract.resolutionReadiness = "RESOLVED";
+    } else if (outcome === "PAYER_FAULT") {
+      if (contract.rewardEscrowId) {
+        await this.escrowService.releaseEscrow(contract.rewardEscrowId);
+      }
+      if (contract.payerBondEscrowId) {
+        await this.escrowService.releaseEscrow(contract.payerBondEscrowId);
+      }
+      if (contract.hunterBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.hunterBondEscrowId);
+      }
+      contract.state = "RESOLVED_PAYER_FAULT";
+      contract.resolutionReadiness = "RESOLVED";
+    } else if (outcome === "EXPIRED") {
+      if (contract.rewardEscrowId) {
+        await this.escrowService.cancelEscrow(contract.rewardEscrowId);
+      }
+      if (contract.payerBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.payerBondEscrowId);
+      }
+      if (contract.hunterBondEscrowId) {
+        await this.escrowService.cancelEscrow(contract.hunterBondEscrowId);
+      }
+      contract.state = "RESOLVED_EXPIRED";
+      contract.resolutionReadiness = "RESOLVED";
+    } else {
+      throw new Error(`unknown resolution outcome: ${outcome}`);
+    }
+
+    contract.updatedAt = this.now();
+    await this.persist();
+    return contract;
+  }
+
   async updateContractBondEscrows({
     contractId,
     payerUserId,
@@ -427,6 +569,14 @@ export class ProtocolService {
     if (contract.receiptIds.length >= contract.requiredReceipts) {
       contract.state = "DELIVERY_VERIFIED";
       contract.resolutionReadiness = "READY_FOR_RESOLUTION_SUCCESS";
+
+      if (this.escrowService) {
+        try {
+          await this.resolveContract({ contractId: contract.id, outcome: "SUCCESS" });
+        } catch (_resolveError) {
+          // Resolution will be retried by the sweep timer if it fails here.
+        }
+      }
     }
 
     contract.updatedAt = this.now();
@@ -452,6 +602,9 @@ export class ProtocolService {
         contract.state = "EXPIRED";
         contract.resolutionReadiness = "READY_FOR_RESOLUTION_FAILURE_BOND_TIMEOUT";
         contract.updatedAt = now;
+        if (this.escrowService) {
+          try { await this.resolveContract({ contractId: contract.id, outcome: "EXPIRED" }); } catch (_e) { /* retry next sweep */ }
+        }
         continue;
       }
 
@@ -459,12 +612,18 @@ export class ProtocolService {
         contract.state = "EXPIRED";
         contract.resolutionReadiness = "READY_FOR_RESOLUTION_FAILURE_HUNTER_TIMEOUT";
         contract.updatedAt = now;
+        if (this.escrowService) {
+          try { await this.resolveContract({ contractId: contract.id, outcome: "HUNTER_FAULT" }); } catch (_e) { /* retry next sweep */ }
+        }
         continue;
       }
 
       if (contract.state === "DELIVERY_VERIFIED" && isExpired(contract.receiptDeadlineAt, now)) {
         contract.resolutionReadiness = "READY_FOR_RESOLUTION_SUCCESS";
         contract.updatedAt = now;
+        if (this.escrowService) {
+          try { await this.resolveContract({ contractId: contract.id, outcome: "SUCCESS" }); } catch (_e) { /* retry next sweep */ }
+        }
       }
     }
 
