@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { AuthService } from "../src/auth-service.js";
-import { MockWalletAuthVerifier } from "../src/wallet-auth-verifier.js";
+import {
+  BitcoinCliWalletAuthVerifier,
+  MockWalletAuthVerifier,
+  createWalletAuthVerifierFromEnv,
+} from "../src/wallet-auth-verifier.js";
 
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-auth-"));
@@ -91,4 +95,68 @@ test("auth service expires sessions", async () => {
     const auth = await authService.authenticateSession(result.session.token);
     assert.equal(auth, null);
   });
+});
+
+test("bitcoin-cli verifier delegates to verifymessage on testnet4", async () => {
+  const calls = [];
+  const verifier = new BitcoinCliWalletAuthVerifier({
+    bitcoinCliPath: "/usr/bin/bitcoin-cli",
+    datadir: "/tmp/bitcoin-auth",
+    chain: "testnet4",
+    execFileImpl: async (file, args) => {
+      calls.push({ file, args });
+      return { stdout: "true\n", stderr: "" };
+    },
+  });
+
+  const result = await verifier.verifySignature({
+    walletAddress: "tb1qexamplebuyer",
+    message: "Bit Lazarus wallet login\nNonce: abc",
+    signature: "signature-value",
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(calls, [
+    {
+      file: "/usr/bin/bitcoin-cli",
+      args: [
+        "-datadir=/tmp/bitcoin-auth",
+        "-testnet4",
+        "verifymessage",
+        "tb1qexamplebuyer",
+        "signature-value",
+        "Bit Lazarus wallet login\nNonce: abc",
+      ],
+    },
+  ]);
+});
+
+test("bitcoin-cli verifier surfaces command failures", async () => {
+  const verifier = new BitcoinCliWalletAuthVerifier({
+    execFileImpl: async () => {
+      const error = new Error("command failed");
+      error.stderr = "Signature verification failed";
+      throw error;
+    },
+  });
+
+  await assert.rejects(
+    verifier.verifySignature({
+      walletAddress: "tb1qexamplebuyer",
+      message: "Bit Lazarus wallet login\nNonce: abc",
+      signature: "signature-value",
+    }),
+    /bitcoin-cli signature verification failed: Signature verification failed/,
+  );
+});
+
+test("wallet auth verifier factory creates bitcoin-cli backend", () => {
+  const verifier = createWalletAuthVerifierFromEnv({
+    WALLET_AUTH_BACKEND: "bitcoin-cli",
+    BITCOIN_CLI_PATH: "/usr/bin/bitcoin-cli",
+    BITCOIN_CLI_DATADIR: "/tmp/bitcoin-auth",
+    BITCOIN_CLI_CHAIN: "testnet4",
+  });
+
+  assert.equal(verifier.constructor.name, "BitcoinCliWalletAuthVerifier");
 });
