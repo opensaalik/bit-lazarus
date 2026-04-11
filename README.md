@@ -133,8 +133,7 @@ curl -X POST http://127.0.0.1:3000/auth/verify \
 Escrow endpoints now require authentication and are scoped to participating
 users. New escrows always use the authenticated user as `buyerId`.
 
-To use a real Bitcoin verifier backed by Bitcoin Core RPC through `bitcoin-cli`,
-switch the auth backend:
+To use a real Bitcoin verifier, switch the auth backend:
 
 ```bash
 WALLET_AUTH_BACKEND=bitcoin-cli
@@ -144,15 +143,20 @@ BITCOIN_CLI_CHAIN=testnet4
 PORT=3000 DATA_DIR=./data/node-a npm start
 ```
 
-This backend calls:
+This backend now supports two real verification paths:
+
+- Modern BIP-322 signatures for SegWit and Taproot-style wallets using `bip322-js`
+- Legacy `signmessage` / `verifymessage` compatibility through `bitcoin-cli`
+
+For legacy compatibility, it can call:
 
 ```bash
 bitcoin-cli -datadir=... -testnet4 verifymessage <address> <signature> <message>
 ```
 
-So the client wallet must produce a Bitcoin-compatible signed message for the
-same address and challenge text. The mock backend remains useful for local UI
-development, while `bitcoin-cli` is the first real verification path.
+So the client wallet can now use either a modern BIP-322 signature flow or the
+older Bitcoin Core compatible signed-message flow for the same address and
+challenge text. The mock backend remains useful for local UI development.
 
 ## Escrow Setup
 

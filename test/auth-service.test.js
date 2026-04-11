@@ -9,6 +9,7 @@ import {
   MockWalletAuthVerifier,
   createWalletAuthVerifierFromEnv,
 } from "../src/wallet-auth-verifier.js";
+import { Signer as Bip322Signer } from "bip322-js";
 
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-auth-"));
@@ -129,6 +130,26 @@ test("bitcoin-cli verifier delegates to verifymessage on testnet4", async () => 
       ],
     },
   ]);
+});
+
+test("bitcoin verifier accepts modern BIP-322 signatures for bech32 wallets", async () => {
+  const verifier = new BitcoinCliWalletAuthVerifier({
+    execFileImpl: async () => {
+      throw new Error("bitcoin-cli fallback should not be called for valid bip322 signatures");
+    },
+  });
+  const privateKeyWif = "L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k";
+  const walletAddress = "tb1q9vza2e8x573nczrlzms0wvx3gsqjx7vaxwd45v";
+  const message = "Bit Lazarus modern wallet login";
+  const signature = Bip322Signer.sign(privateKeyWif, walletAddress, message);
+
+  const result = await verifier.verifySignature({
+    walletAddress,
+    message,
+    signature,
+  });
+
+  assert.equal(result.valid, true);
 });
 
 test("bitcoin-cli verifier surfaces command failures", async () => {

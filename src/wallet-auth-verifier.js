@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { Verifier as Bip322Verifier } from "bip322-js";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,6 +40,19 @@ export class BitcoinCliWalletAuthVerifier {
     assertString(walletAddress, "walletAddress");
     assertString(message, "message");
     assertString(signature, "signature");
+
+    try {
+      const valid = Bip322Verifier.verifySignature(walletAddress, message, signature);
+
+      if (valid) {
+        return {
+          valid: true,
+          walletAddress,
+        };
+      }
+    } catch (_error) {
+      // Fall through to bitcoin-cli for legacy compatibility and clearer diagnostics.
+    }
 
     const args = [];
 
