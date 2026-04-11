@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "node:crypto";
 import path from "node:path";
 import { AuthService } from "./auth-service.js";
+import { startBountyEscrowSync } from "./bounty-escrow-sync.js";
 import { BountyService } from "./bounty-service.js";
 import { EscrowService } from "./escrow-service.js";
 import { createLightningClientFromEnv } from "./lightning-client.js";
@@ -324,6 +325,7 @@ export async function startServer({
   port = Number.parseInt(process.env.PORT ?? "3000", 10),
   host = process.env.HOST ?? "127.0.0.1",
   dataDir = process.env.DATA_DIR ?? path.resolve("data"),
+  bountyEscrowSyncIntervalMs = Number.parseInt(process.env.BOUNTY_ESCROW_SYNC_INTERVAL_MS ?? "30000", 10),
 } = {}) {
   const walletNode = new WalletNode({ dataDir: path.join(dataDir, "wallet-node") });
   await walletNode.init();
@@ -350,7 +352,27 @@ export async function startServer({
     const instance = app.listen(port, host, () => resolve(instance));
   });
 
-  return { app, server, walletNode, escrowService, authService, bountyService, port, host };
+  const bountyEscrowSync = startBountyEscrowSync({
+    bountyService,
+    escrowService,
+    intervalMs: bountyEscrowSyncIntervalMs,
+  });
+
+  server.on("close", () => {
+    bountyEscrowSync.stop();
+  });
+
+  return {
+    app,
+    server,
+    walletNode,
+    escrowService,
+    authService,
+    bountyService,
+    bountyEscrowSync,
+    port,
+    host,
+  };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

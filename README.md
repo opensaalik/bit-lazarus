@@ -43,7 +43,7 @@ bounty hunters who intend to seed the missing data.
 - `POST /bounties` creates a new bounty as the authenticated user.
 - `GET /bounties/:id` returns one bounty.
 - `POST /bounties/:id/hunt` joins a bounty as a hunter.
-- `POST /bounties/:id/sync-escrow` refreshes bounty funding state from its escrow.
+- `POST /bounties/:id/sync-escrow` force-refreshes bounty funding state from its escrow.
 
 ## Running A Node
 
@@ -194,7 +194,15 @@ curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/hunt \
 
 Each new bounty now creates an attached escrow automatically. New bounties start
 as `AWAITING_FUNDING` and become `OPEN` when the linked escrow reports `FUNDED`.
-You can sync that state with:
+
+The backend now runs an automatic background sync loop for bounty escrow state.
+By default it polls every 30 seconds, and you can change that with:
+
+```bash
+BOUNTY_ESCROW_SYNC_INTERVAL_MS=30000
+```
+
+You can also force a refresh manually with:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/sync-escrow \
