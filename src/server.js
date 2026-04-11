@@ -1,16 +1,79 @@
 import express from "express";
 import path from "node:path";
+import { AuthService } from "./auth-service.js";
 import { EscrowService } from "./escrow-service.js";
 import { createLightningClientFromEnv } from "./lightning-client.js";
+import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { WalletNode } from "./wallet-node.js";
 
-export function createApp({ walletNode, escrowService }) {
+function getBearerToken(request) {
+  const authorization = request.headers.authorization;
+
+  if (!authorization || !authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return authorization.slice("Bearer ".length).trim() || null;
+}
+
+function requireAuth(request, response, next) {
+  if (!request.auth) {
+    response.status(401).json({ error: "authentication required" });
+    return;
+  }
+
+  next();
+}
+
+function canAccessEscrow(userId, escrow) {
+  return [escrow.buyerId, escrow.sellerId, escrow.mediatorId].filter(Boolean).includes(userId);
+}
+
+export function createApp({ walletNode, escrowService, authService }) {
   const app = express();
 
   app.use(express.json());
+  app.use(async (request, _response, next) => {
+    try {
+      const token = getBearerToken(request);
+
+      if (!token) {
+        request.auth = null;
+        next();
+        return;
+      }
+
+      const auth = await authService.authenticateSession(token);
+      request.auth = auth;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/health", (_request, response) => {
     response.json({ ok: true, nodeId: walletNode.nodeId });
+  });
+
+  app.post("/auth/challenges", async (request, response) => {
+    const challenge = await authService.issueChallenge({
+      walletAddress: request.body?.walletAddress,
+    });
+    response.status(201).json({ challenge });
+  });
+
+  app.post("/auth/verify", async (request, response) => {
+    const result = await authService.verifyChallenge(request.body ?? {});
+    response.status(201).json(result);
+  });
+
+  app.post("/auth/logout", requireAuth, async (request, response) => {
+    const result = await authService.revokeSession(request.auth.session.token);
+    response.json(result);
+  });
+
+  app.get("/me", requireAuth, (request, response) => {
+    response.json({ user: request.auth.user, session: request.auth.session });
   });
 
   app.get("/wallets", (_request, response) => {
@@ -61,16 +124,27 @@ export function createApp({ walletNode, escrowService }) {
     response.status(202).json(result);
   });
 
-  app.get("/escrows", (_request, response) => {
-    response.json({ escrows: escrowService.listEscrows() });
+  app.get("/escrows", requireAuth, (request, response) => {
+    const escrows = escrowService
+      .listEscrows()
+      .filter((escrow) => canAccessEscrow(request.auth.user.id, escrow));
+    response.json({ escrows });
   });
 
-  app.post("/escrows", async (request, response) => {
-    const escrow = await escrowService.createEscrow(request.body ?? {});
+  app.post("/escrows", requireAuth, async (request, response) => {
+    if (request.body?.buyerId && request.body.buyerId !== request.auth.user.id) {
+      response.status(403).json({ error: "buyerId must match the authenticated user" });
+      return;
+    }
+
+    const escrow = await escrowService.createEscrow({
+      ...(request.body ?? {}),
+      buyerId: request.auth.user.id,
+    });
     response.status(201).json({ escrow });
   });
 
-  app.get("/escrows/:escrowId", (request, response) => {
+  app.get("/escrows/:escrowId", requireAuth, (request, response) => {
     const escrow = escrowService.getEscrow(request.params.escrowId);
 
     if (!escrow) {
@@ -78,20 +152,61 @@ export function createApp({ walletNode, escrowService }) {
       return;
     }
 
+    if (!canAccessEscrow(request.auth.user.id, escrow)) {
+      response.status(403).json({ error: "escrow access denied" });
+      return;
+    }
+
     response.json({ escrow });
   });
 
-  app.post("/escrows/:escrowId/sync", async (request, response) => {
+  app.post("/escrows/:escrowId/sync", requireAuth, async (request, response) => {
+    const existingEscrow = escrowService.getEscrow(request.params.escrowId);
+
+    if (!existingEscrow) {
+      response.status(404).json({ error: "escrow not found" });
+      return;
+    }
+
+    if (!canAccessEscrow(request.auth.user.id, existingEscrow)) {
+      response.status(403).json({ error: "escrow access denied" });
+      return;
+    }
+
     const escrow = await escrowService.syncEscrow(request.params.escrowId);
     response.json({ escrow });
   });
 
-  app.post("/escrows/:escrowId/release", async (request, response) => {
+  app.post("/escrows/:escrowId/release", requireAuth, async (request, response) => {
+    const existingEscrow = escrowService.getEscrow(request.params.escrowId);
+
+    if (!existingEscrow) {
+      response.status(404).json({ error: "escrow not found" });
+      return;
+    }
+
+    if (!canAccessEscrow(request.auth.user.id, existingEscrow)) {
+      response.status(403).json({ error: "escrow access denied" });
+      return;
+    }
+
     const escrow = await escrowService.releaseEscrow(request.params.escrowId);
     response.json({ escrow });
   });
 
-  app.post("/escrows/:escrowId/cancel", async (request, response) => {
+  app.post("/escrows/:escrowId/cancel", requireAuth, async (request, response) => {
+    const existingEscrow = escrowService.getEscrow(request.params.escrowId);
+
+    if (!existingEscrow) {
+      response.status(404).json({ error: "escrow not found" });
+      return;
+    }
+
+    if (!canAccessEscrow(request.auth.user.id, existingEscrow)) {
+      response.status(403).json({ error: "escrow access denied" });
+      return;
+    }
+
     const escrow = await escrowService.cancelEscrow(request.params.escrowId);
     response.json({ escrow });
   });
@@ -114,6 +229,12 @@ export async function startServer({
 } = {}) {
   const walletNode = new WalletNode({ dataDir: path.join(dataDir, "wallet-node") });
   await walletNode.init();
+  const authVerifier = createWalletAuthVerifierFromEnv(process.env);
+  const authService = new AuthService({
+    dataDir: path.join(dataDir, "auth"),
+    verifier: authVerifier,
+  });
+  await authService.init();
   const lightningClient = createLightningClientFromEnv(process.env);
   const escrowService = new EscrowService({
     dataDir: path.join(dataDir, "escrow"),
@@ -121,13 +242,13 @@ export async function startServer({
   });
   await escrowService.init();
 
-  const app = createApp({ walletNode, escrowService });
+  const app = createApp({ walletNode, escrowService, authService });
 
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));
   });
 
-  return { app, server, walletNode, escrowService, port, host };
+  return { app, server, walletNode, escrowService, authService, port, host };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

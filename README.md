@@ -8,6 +8,10 @@ The project now also includes an escrow service scaffold backed by Lightning
 hold invoices. The payment plumbing is in place for Bitcoin Lightning testnet,
 while the final escrow contract rules can be added later.
 
+The server now also supports wallet-linked user accounts. Instead of passwords,
+clients obtain a challenge, sign it with their wallet, and exchange the signed
+challenge for a session token.
+
 ## API
 
 - `POST /wallets` creates a wallet.
@@ -24,6 +28,10 @@ while the final escrow contract rules can be added later.
 - `POST /escrows/:id/sync` refreshes invoice state from the Lightning backend.
 - `POST /escrows/:id/release` settles a funded hold invoice.
 - `POST /escrows/:id/cancel` cancels an unpaid or unresolved hold invoice.
+- `POST /auth/challenges` issues a wallet login challenge.
+- `POST /auth/verify` verifies a signed challenge and returns a session token.
+- `POST /auth/logout` revokes the current session token.
+- `GET /me` returns the authenticated user and current session.
 
 ## Running A Node
 
@@ -83,7 +91,47 @@ npm test
 npm start
 ```
 
-The node persists its state to `DATA_DIR/state.json`.
+The node persists its state inside `DATA_DIR/`.
+
+## Wallet Auth
+
+The current auth flow is wallet-first:
+
+1. `POST /auth/challenges` with a wallet address.
+2. Sign the returned `challenge.message` in the client wallet.
+3. `POST /auth/verify` with the challenge ID, wallet address, and signature.
+4. Use the returned session token as `Authorization: Bearer <token>`.
+
+For local development, the default backend is `WALLET_AUTH_BACKEND=mock`. The
+mock verifier accepts this signature format:
+
+```text
+mock-signature:<walletAddress>:<challenge.message>
+```
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:3000/auth/challenges \
+  -H 'content-type: application/json' \
+  -d '{"walletAddress":"tb1qexamplebuyer"}'
+```
+
+Then verify:
+
+```bash
+curl -X POST http://127.0.0.1:3000/auth/verify \
+  -H 'content-type: application/json' \
+  -d '{
+    "challengeId":"<challenge-id>",
+    "walletAddress":"tb1qexamplebuyer",
+    "signature":"mock-signature:tb1qexamplebuyer:<challenge.message>",
+    "displayName":"Alice"
+  }'
+```
+
+Escrow endpoints now require authentication and are scoped to participating
+users. New escrows always use the authenticated user as `buyerId`.
 
 ## Escrow Setup
 
