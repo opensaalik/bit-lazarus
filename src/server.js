@@ -76,6 +76,26 @@ export function createApp({ walletNode, escrowService, authService }) {
     response.json({ user: request.auth.user, session: request.auth.session });
   });
 
+  app.get("/users/me", requireAuth, (request, response) => {
+    response.json({ user: request.auth.user, session: request.auth.session });
+  });
+
+  app.patch("/users/me", requireAuth, async (request, response) => {
+    const user = await authService.updateUserProfile(request.auth.user.id, request.body ?? {});
+    response.json({ user });
+  });
+
+  app.get("/users/:userId", requireAuth, (request, response) => {
+    const user = authService.getUser(request.params.userId);
+
+    if (!user) {
+      response.status(404).json({ error: "user not found" });
+      return;
+    }
+
+    response.json({ user });
+  });
+
   app.get("/wallets", (_request, response) => {
     response.json({ wallets: walletNode.listWallets() });
   });

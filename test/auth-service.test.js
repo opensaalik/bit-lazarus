@@ -98,6 +98,34 @@ test("auth service expires sessions", async () => {
   });
 });
 
+test("auth service updates wallet-linked user profiles", async () => {
+  await withTempDir(async (tempDir) => {
+    const authService = new AuthService({
+      dataDir: tempDir,
+      verifier: new MockWalletAuthVerifier(),
+    });
+    await authService.init();
+
+    const challenge = await authService.issueChallenge({
+      walletAddress: "tb1qprofileuser",
+    });
+    const result = await authService.verifyChallenge({
+      challengeId: challenge.id,
+      walletAddress: challenge.walletAddress,
+      signature: `mock-signature:${challenge.walletAddress}:${challenge.message}`,
+      displayName: "Original Name",
+    });
+
+    const updatedUser = await authService.updateUserProfile(result.user.id, {
+      displayName: "Updated Name",
+      bio: "Torrent bounty hunter",
+    });
+
+    assert.equal(updatedUser.displayName, "Updated Name");
+    assert.equal(updatedUser.bio, "Torrent bounty hunter");
+  });
+});
+
 test("bitcoin-cli verifier delegates to verifymessage on testnet4", async () => {
   const calls = [];
   const verifier = new BitcoinCliWalletAuthVerifier({

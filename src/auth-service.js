@@ -13,6 +13,19 @@ function normalizeWalletAddress(walletAddress) {
   return walletAddress.trim();
 }
 
+function normalizeOptionalString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("profile fields must be strings");
+  }
+
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 export class AuthService {
   constructor({
     dataDir = path.resolve("data", "auth"),
@@ -178,6 +191,28 @@ export class AuthService {
     return this.users.get(userId) ?? null;
   }
 
+  async updateUserProfile(userId, { displayName, bio } = {}) {
+    assertString(userId, "userId");
+
+    const user = this.users.get(userId);
+
+    if (!user) {
+      throw new Error(`user not found: ${userId}`);
+    }
+
+    if (displayName !== undefined) {
+      user.displayName = normalizeOptionalString(displayName);
+    }
+
+    if (bio !== undefined) {
+      user.bio = normalizeOptionalString(bio);
+    }
+
+    user.updatedAt = this.now().toISOString();
+    await this.persist();
+    return user;
+  }
+
   async findOrCreateUser({ walletAddress, displayName = null }) {
     const existingUserId = this.userIdsByWalletAddress.get(walletAddress);
 
@@ -197,7 +232,8 @@ export class AuthService {
     const user = {
       id: crypto.randomUUID(),
       walletAddress,
-      displayName,
+      displayName: normalizeOptionalString(displayName),
+      bio: null,
       walletType: "bitcoin",
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -224,4 +260,3 @@ export class AuthService {
     );
   }
 }
-

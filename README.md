@@ -32,6 +32,9 @@ challenge for a session token.
 - `POST /auth/verify` verifies a signed challenge and returns a session token.
 - `POST /auth/logout` revokes the current session token.
 - `GET /me` returns the authenticated user and current session.
+- `GET /users/me` returns the authenticated user profile.
+- `PATCH /users/me` updates the authenticated user profile.
+- `GET /users/:id` returns a saved user profile.
 
 ## Running A Node
 
@@ -132,6 +135,12 @@ curl -X POST http://127.0.0.1:3000/auth/verify \
 
 Escrow endpoints now require authentication and are scoped to participating
 users. New escrows always use the authenticated user as `buyerId`.
+
+The app now treats these wallet-linked users as the core project identity:
+- `id`: stable internal user ID
+- `walletAddress`: login wallet
+- `displayName`: optional public profile name
+- `bio`: optional profile text for bounty creators and hunters
 
 To use a real Bitcoin verifier, switch the auth backend:
 
