@@ -84,6 +84,13 @@ function normalizeTorrentInfoHash(infoHash) {
   return normalized;
 }
 
+const BOUNTY_STATUSES_BY_ESCROW_STATUS = {
+  AWAITING_FUNDING: "AWAITING_FUNDING",
+  FUNDED: "OPEN",
+  RELEASED: "COMPLETED",
+  CANCELED: "CANCELED",
+};
+
 export class BountyService {
   constructor({
     dataDir = path.resolve("data", "bounties"),
@@ -143,11 +150,15 @@ export class BountyService {
     rewardSats,
     missingPieces = [],
     tags = [],
+    escrowId,
+    escrowStatus = "AWAITING_FUNDING",
+    funding = null,
   }) {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
     assertString(description, "description");
     assertPositiveInteger(rewardSats, "rewardSats");
+    assertString(escrowId, "escrowId");
 
     if (this.bounties.has(bountyId)) {
       throw new Error(`bounty already exists: ${bountyId}`);
@@ -164,10 +175,13 @@ export class BountyService {
       rewardSats,
       missingPieces: normalizeMissingPieces(missingPieces),
       tags: normalizeTags(tags),
-      status: "OPEN",
+      status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
       verificationMode: "manual",
       createdAt: timestamp,
       updatedAt: timestamp,
+      escrowId,
+      escrowStatus,
+      funding,
       hunters: [],
     };
 
@@ -187,7 +201,7 @@ export class BountyService {
     }
 
     if (bounty.status !== "OPEN") {
-      throw new Error("only OPEN bounties can accept hunters");
+      throw new Error("only funded OPEN bounties can accept hunters");
     }
 
     const existingHunter = bounty.hunters.find((hunter) => hunter.userId === userId);
@@ -201,6 +215,25 @@ export class BountyService {
       joinedAt: this.now(),
       status: "JOINED",
     });
+    bounty.updatedAt = this.now();
+    await this.persist();
+    return bounty;
+  }
+
+  async syncBountyEscrow({ bountyId, escrowId, escrowStatus, funding }) {
+    assertString(bountyId, "bountyId");
+    assertString(escrowId, "escrowId");
+    assertString(escrowStatus, "escrowStatus");
+
+    const bounty = this.requireBounty(bountyId);
+
+    if (bounty.escrowId !== escrowId) {
+      throw new Error("escrowId does not match bounty");
+    }
+
+    bounty.escrowStatus = escrowStatus;
+    bounty.status = BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? bounty.status;
+    bounty.funding = funding ?? bounty.funding;
     bounty.updatedAt = this.now();
     await this.persist();
     return bounty;

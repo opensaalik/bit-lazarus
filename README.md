@@ -43,6 +43,7 @@ bounty hunters who intend to seed the missing data.
 - `POST /bounties` creates a new bounty as the authenticated user.
 - `GET /bounties/:id` returns one bounty.
 - `POST /bounties/:id/hunt` joins a bounty as a hunter.
+- `POST /bounties/:id/sync-escrow` refreshes bounty funding state from its escrow.
 
 ## Running A Node
 
@@ -160,8 +161,11 @@ Each bounty stores:
 - `torrentName`: optional torrent label
 - `missingPieces`: piece indices still needed
 - `rewardSats`: reward amount in sats
+- `escrowId`: attached escrow record created with the bounty
+- `escrowStatus`: mirrored escrow funding state
+- `funding`: current funding payload from the linked escrow
 - `hunters`: users who have joined the bounty
-- `status`: currently `OPEN`
+- `status`: currently `AWAITING_FUNDING`, `OPEN`, `COMPLETED`, or `CANCELED`
 - `verificationMode`: currently `manual`
 
 Create a bounty:
@@ -188,9 +192,18 @@ curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/hunt \
   -H 'authorization: Bearer <session-token>'
 ```
 
-The current backend only saves bounty state and hunter intent. Piece-proof
-verification, seeding verification, payout flow, and completion logic still
-need to be implemented later.
+Each new bounty now creates an attached escrow automatically. New bounties start
+as `AWAITING_FUNDING` and become `OPEN` when the linked escrow reports `FUNDED`.
+You can sync that state with:
+
+```bash
+curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/sync-escrow \
+  -H 'authorization: Bearer <session-token>'
+```
+
+The current backend only saves bounty state, attached escrow metadata, and
+hunter intent. Piece-proof verification, seeding verification, and fully
+automatic completion syncing still need to be implemented later.
 
 To use a real Bitcoin verifier, switch the auth backend:
 

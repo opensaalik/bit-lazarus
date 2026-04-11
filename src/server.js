@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import path from "node:path";
 import { AuthService } from "./auth-service.js";
 import { BountyService } from "./bounty-service.js";
@@ -156,9 +157,30 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   });
 
   app.post("/bounties", requireAuth, async (request, response) => {
+    const requestedBountyId = request.body?.bountyId;
+    const bountyId =
+      typeof requestedBountyId === "string" && requestedBountyId.trim()
+        ? requestedBountyId.trim()
+        : crypto.randomUUID();
+    const escrow = await escrowService.createEscrow({
+      escrowId: `escrow-${bountyId}`,
+      buyerId: request.auth.user.id,
+      sellerId: `bounty:${bountyId}`,
+      amountSats: request.body?.rewardSats,
+      description: request.body?.title ?? "Torrent bounty escrow",
+      metadata: {
+        kind: "bounty",
+        bountyId,
+        torrentInfoHash: request.body?.torrentInfoHash,
+      },
+    });
     const bounty = await bountyService.createBounty({
       ...(request.body ?? {}),
+      bountyId,
       creatorUserId: request.auth.user.id,
+      escrowId: escrow.id,
+      escrowStatus: escrow.status,
+      funding: escrow.funding,
     });
     response.status(201).json({ bounty });
   });
@@ -180,6 +202,24 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       userId: request.auth.user.id,
     });
     response.json({ bounty });
+  });
+
+  app.post("/bounties/:bountyId/sync-escrow", requireAuth, async (request, response) => {
+    const existingBounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!existingBounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    const escrow = await escrowService.syncEscrow(existingBounty.escrowId);
+    const bounty = await bountyService.syncBountyEscrow({
+      bountyId: existingBounty.id,
+      escrowId: escrow.id,
+      escrowStatus: escrow.status,
+      funding: escrow.funding,
+    });
+    response.json({ bounty, escrow });
   });
 
   app.get("/escrows", requireAuth, (request, response) => {

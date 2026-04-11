@@ -30,12 +30,16 @@ test("bounty service saves torrent bounties", async () => {
       rewardSats: 25_000,
       missingPieces: [12, 15, 18, 12],
       tags: ["Linux", "Archive"],
+      escrowId: "escrow-bounty-1",
+      escrowStatus: "AWAITING_FUNDING",
+      funding: { paymentRequest: "lnmocktestnet-example" },
     });
 
     assert.equal(bounty.creatorUserId, "user-creator");
-    assert.equal(bounty.status, "OPEN");
+    assert.equal(bounty.status, "AWAITING_FUNDING");
     assert.deepEqual(bounty.missingPieces, [12, 15, 18]);
     assert.deepEqual(bounty.tags, ["linux", "archive"]);
+    assert.equal(bounty.escrowId, "escrow-bounty-1");
   });
 });
 
@@ -51,6 +55,8 @@ test("bounty service lets hunters join open bounties", async () => {
       description: "Need a partial reseed",
       torrentInfoHash: "89abcdef0123456789abcdef0123456789abcdef",
       rewardSats: 5_000,
+      escrowId: "escrow-bounty-2",
+      escrowStatus: "FUNDED",
     });
 
     const joinedBounty = await service.joinBounty({
@@ -75,6 +81,8 @@ test("bounty service prevents creators from joining their own bounties", async (
       description: "Recover a research torrent",
       torrentInfoHash: "fedcba9876543210fedcba9876543210fedcba98",
       rewardSats: 9_000,
+      escrowId: "escrow-bounty-3",
+      escrowStatus: "FUNDED",
     });
 
     await assert.rejects(
@@ -99,6 +107,8 @@ test("bounty service filters by creator and hunter", async () => {
       description: "Missing pieces for torrent A",
       torrentInfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       rewardSats: 3_000,
+      escrowId: "escrow-bounty-4",
+      escrowStatus: "AWAITING_FUNDING",
     });
     await service.createBounty({
       bountyId: "bounty-5",
@@ -107,6 +117,8 @@ test("bounty service filters by creator and hunter", async () => {
       description: "Missing pieces for torrent B",
       torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       rewardSats: 4_000,
+      escrowId: "escrow-bounty-5",
+      escrowStatus: "FUNDED",
     });
 
     await service.joinBounty({
@@ -116,5 +128,33 @@ test("bounty service filters by creator and hunter", async () => {
 
     assert.equal(service.listBounties({ creatorUserId: "user-creator-a" }).length, 1);
     assert.equal(service.listBounties({ hunterUserId: "user-hunter-b" }).length, 1);
+  });
+});
+
+test("bounty service syncs bounty state from escrow state", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = new BountyService({ dataDir: tempDir });
+    await service.init();
+
+    await service.createBounty({
+      bountyId: "bounty-6",
+      creatorUserId: "user-creator",
+      title: "Need a funded bounty",
+      description: "Awaiting escrow funding",
+      torrentInfoHash: "cccccccccccccccccccccccccccccccccccccccc",
+      rewardSats: 6_000,
+      escrowId: "escrow-bounty-6",
+      escrowStatus: "AWAITING_FUNDING",
+    });
+
+    const openBounty = await service.syncBountyEscrow({
+      bountyId: "bounty-6",
+      escrowId: "escrow-bounty-6",
+      escrowStatus: "FUNDED",
+      funding: { paymentRequest: "lnmocktestnet-bounty-6" },
+    });
+
+    assert.equal(openBounty.status, "OPEN");
+    assert.equal(openBounty.escrowStatus, "FUNDED");
   });
 });
