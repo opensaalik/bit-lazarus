@@ -135,6 +135,24 @@ A production build is served by the backend at:
 /app
 ```
 
+The frontend now includes a protocol workbench for the real torrent-piece proof
+flow:
+
+1. Connect a wallet.
+2. Create or join a bounty.
+3. Open a verification session on an `OPEN` bounty.
+4. In the hunter console, load the real `.torrent` file and matching content
+   file, then generate a proof for a challenged piece.
+5. Submit the proof to the selected verification session.
+6. In the payer console, load the same `.torrent` metadata, verify the proof
+   locally in the browser, and record the verification.
+7. Create a delivery contract, mark both bonds funded, and submit signed piece
+   receipts as the payer.
+
+The hunter console computes the SHA1 round-70 artifact from local piece data.
+The payer console replays the remaining SHA1 rounds against the `.torrent`
+piece hash before the session is marked verified.
+
 ## Wallet Auth
 
 The current auth flow is wallet-first:
@@ -258,7 +276,9 @@ generation and torrent transfer are still intended to be client-side.
 
 The frontend now includes a WebTorrent client boundary in
 `frontend/src/lib/webtorrent-client.js` for the upcoming torrent metadata,
-download, and seeding workflow.
+download, and seeding workflow. The protocol workbench already uses WebTorrent
+to inspect a loaded `.torrent` file in the browser while proof generation and
+verification stay client-side.
 
 To use a real Bitcoin verifier, switch the auth backend:
 

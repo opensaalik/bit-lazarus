@@ -26,7 +26,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -78,6 +79,16 @@ input::placeholder {
   margin-top: 24px;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.protocol-grid {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
   align-items: start;
 }
@@ -187,7 +198,8 @@ input::placeholder {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.select-field {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
@@ -199,6 +211,10 @@ input::placeholder {
 
 .field textarea {
   min-height: 112px;
+}
+
+.select-field {
+  appearance: none;
 }
 
 .primary-button,
@@ -293,6 +309,49 @@ input::placeholder {
   gap: 14px;
 }
 
+.protocol-list {
+  display: grid;
+  gap: 10px;
+}
+
+.protocol-card {
+  text-align: left;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+}
+
+.protocol-card.is-active {
+  border-color: rgba(255, 177, 96, 0.68);
+  box-shadow: 0 0 0 1px rgba(255, 177, 96, 0.2);
+}
+
+.protocol-card span,
+.protocol-card small {
+  display: block;
+}
+
+.protocol-card span {
+  color: #ffb160;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.protocol-card strong {
+  display: block;
+  margin: 8px 0 6px;
+  font-size: 1rem;
+}
+
+.protocol-card small {
+  color: rgba(245, 238, 226, 0.6);
+  font-family: "IBM Plex Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
 .bounty-card {
   padding: 20px;
   border-radius: 24px;
@@ -346,7 +405,8 @@ input::placeholder {
 
 @media (max-width: 1120px) {
   .hero-grid,
-  .dashboard-grid {
+  .dashboard-grid,
+  .protocol-grid {
     grid-template-columns: 1fr;
   }
 
