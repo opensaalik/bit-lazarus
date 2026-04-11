@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { AuthService } from "./auth-service.js";
+import { BountyService } from "./bounty-service.js";
 import { EscrowService } from "./escrow-service.js";
 import { createLightningClientFromEnv } from "./lightning-client.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
@@ -29,7 +30,7 @@ function canAccessEscrow(userId, escrow) {
   return [escrow.buyerId, escrow.sellerId, escrow.mediatorId].filter(Boolean).includes(userId);
 }
 
-export function createApp({ walletNode, escrowService, authService }) {
+export function createApp({ walletNode, escrowService, authService, bountyService }) {
   const app = express();
 
   app.use(express.json());
@@ -144,6 +145,43 @@ export function createApp({ walletNode, escrowService, authService }) {
     response.status(202).json(result);
   });
 
+  app.get("/bounties", requireAuth, (request, response) => {
+    const { created, hunting, status } = request.query;
+    const bounties = bountyService.listBounties({
+      creatorUserId: created === "me" ? request.auth.user.id : undefined,
+      hunterUserId: hunting === "me" ? request.auth.user.id : undefined,
+      status: typeof status === "string" ? status : undefined,
+    });
+    response.json({ bounties });
+  });
+
+  app.post("/bounties", requireAuth, async (request, response) => {
+    const bounty = await bountyService.createBounty({
+      ...(request.body ?? {}),
+      creatorUserId: request.auth.user.id,
+    });
+    response.status(201).json({ bounty });
+  });
+
+  app.get("/bounties/:bountyId", requireAuth, (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    response.json({ bounty });
+  });
+
+  app.post("/bounties/:bountyId/hunt", requireAuth, async (request, response) => {
+    const bounty = await bountyService.joinBounty({
+      bountyId: request.params.bountyId,
+      userId: request.auth.user.id,
+    });
+    response.json({ bounty });
+  });
+
   app.get("/escrows", requireAuth, (request, response) => {
     const escrows = escrowService
       .listEscrows()
@@ -256,19 +294,23 @@ export async function startServer({
   });
   await authService.init();
   const lightningClient = createLightningClientFromEnv(process.env);
+  const bountyService = new BountyService({
+    dataDir: path.join(dataDir, "bounties"),
+  });
+  await bountyService.init();
   const escrowService = new EscrowService({
     dataDir: path.join(dataDir, "escrow"),
     lightningClient,
   });
   await escrowService.init();
 
-  const app = createApp({ walletNode, escrowService, authService });
+  const app = createApp({ walletNode, escrowService, authService, bountyService });
 
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));
   });
 
-  return { app, server, walletNode, escrowService, authService, port, host };
+  return { app, server, walletNode, escrowService, authService, bountyService, port, host };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

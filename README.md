@@ -12,6 +12,10 @@ The server now also supports wallet-linked user accounts. Instead of passwords,
 clients obtain a challenge, sign it with their wallet, and exchange the signed
 challenge for a session token.
 
+On top of that identity layer, the app now supports torrent reseed bounties.
+Users can post a bounty for missing torrent pieces, and other users can join as
+bounty hunters who intend to seed the missing data.
+
 ## API
 
 - `POST /wallets` creates a wallet.
@@ -35,6 +39,10 @@ challenge for a session token.
 - `GET /users/me` returns the authenticated user profile.
 - `PATCH /users/me` updates the authenticated user profile.
 - `GET /users/:id` returns a saved user profile.
+- `GET /bounties` lists saved bounties.
+- `POST /bounties` creates a new bounty as the authenticated user.
+- `GET /bounties/:id` returns one bounty.
+- `POST /bounties/:id/hunt` joins a bounty as a hunter.
 
 ## Running A Node
 
@@ -141,6 +149,48 @@ The app now treats these wallet-linked users as the core project identity:
 - `walletAddress`: login wallet
 - `displayName`: optional public profile name
 - `bio`: optional profile text for bounty creators and hunters
+
+## Bounties
+
+Each bounty stores:
+
+- `creatorUserId`: the wallet-linked user who posted it
+- `title` and `description`: human-readable bounty details
+- `torrentInfoHash`: the torrent identifier
+- `torrentName`: optional torrent label
+- `missingPieces`: piece indices still needed
+- `rewardSats`: reward amount in sats
+- `hunters`: users who have joined the bounty
+- `status`: currently `OPEN`
+- `verificationMode`: currently `manual`
+
+Create a bounty:
+
+```bash
+curl -X POST http://127.0.0.1:3000/bounties \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer <session-token>' \
+  -d '{
+    "title":"Need the last pieces for a Linux ISO",
+    "description":"Missing seeders for a partial torrent restore",
+    "torrentInfoHash":"0123456789abcdef0123456789abcdef01234567",
+    "torrentName":"linux-archive.iso.torrent",
+    "rewardSats":25000,
+    "missingPieces":[12,15,18],
+    "tags":["linux","archive"]
+  }'
+```
+
+Join a bounty as a hunter:
+
+```bash
+curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/hunt \
+  -H 'authorization: Bearer <session-token>'
+```
+
+The current backend only saves bounty state and hunter intent. Piece-proof
+verification, seeding verification, payout flow, and completion logic still
+need to be implemented later.
 
 To use a real Bitcoin verifier, switch the auth backend:
 
