@@ -1,110 +1,73 @@
-import http from "node:http";
+import express from "express";
 import path from "node:path";
 import { WalletNode } from "./wallet-node.js";
 
-function json(response, statusCode, body) {
-  response.writeHead(statusCode, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
-}
+export function createApp({ walletNode }) {
+  const app = express();
 
-function readJson(request) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
+  app.use(express.json());
 
-    request.on("data", (chunk) => chunks.push(chunk));
-    request.on("end", () => {
-      if (chunks.length === 0) {
-        resolve({});
-        return;
-      }
-
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch (error) {
-        reject(new Error("invalid JSON request body"));
-      }
-    });
-    request.on("error", reject);
+  app.get("/health", (_request, response) => {
+    response.json({ ok: true, nodeId: walletNode.nodeId });
   });
-}
 
-export function createServer({ walletNode }) {
-  return http.createServer(async (request, response) => {
-    const url = new URL(request.url, "http://127.0.0.1");
+  app.get("/wallets", (_request, response) => {
+    response.json({ wallets: walletNode.listWallets() });
+  });
 
-    try {
-      if (request.method === "GET" && url.pathname === "/health") {
-        json(response, 200, { ok: true, nodeId: walletNode.nodeId });
-        return;
-      }
+  app.post("/wallets", async (request, response) => {
+    const wallet = await walletNode.createWallet(request.body ?? {});
+    response.status(201).json({ wallet });
+  });
 
-      if (request.method === "GET" && url.pathname === "/wallets") {
-        json(response, 200, { wallets: walletNode.listWallets() });
-        return;
-      }
+  app.get("/wallets/:walletId", (request, response) => {
+    const wallet = walletNode.getWallet(request.params.walletId);
 
-      if (request.method === "POST" && url.pathname === "/wallets") {
-        const body = await readJson(request);
-        const wallet = await walletNode.createWallet(body);
-        json(response, 201, { wallet });
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname.startsWith("/wallets/")) {
-        const walletId = url.pathname.split("/")[2];
-        const wallet = walletNode.getWallet(walletId);
-
-        if (!wallet) {
-          json(response, 404, { error: "wallet not found" });
-          return;
-        }
-
-        json(response, 200, { wallet });
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname === "/transactions") {
-        json(response, 200, { transactions: walletNode.listTransactions() });
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/transactions") {
-        const body = await readJson(request);
-        const transaction = await walletNode.createTransaction(body);
-        json(response, 201, { transaction });
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname === "/peers") {
-        json(response, 200, { peers: walletNode.listPeers() });
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/peers") {
-        const body = await readJson(request);
-        const peer = await walletNode.addPeer(body.url);
-        const sync = await walletNode.syncFromPeer(body.url);
-        json(response, 201, { peer, sync });
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname === "/events") {
-        json(response, 200, { events: walletNode.listEvents() });
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/events") {
-        const body = await readJson(request);
-        const result = await walletNode.receiveEvent(body.event);
-        json(response, 202, result);
-        return;
-      }
-
-      json(response, 404, { error: "not found" });
-    } catch (error) {
-      json(response, 400, { error: error.message });
+    if (!wallet) {
+      response.status(404).json({ error: "wallet not found" });
+      return;
     }
+
+    response.json({ wallet });
   });
+
+  app.get("/transactions", (_request, response) => {
+    response.json({ transactions: walletNode.listTransactions() });
+  });
+
+  app.post("/transactions", async (request, response) => {
+    const transaction = await walletNode.createTransaction(request.body ?? {});
+    response.status(201).json({ transaction });
+  });
+
+  app.get("/peers", (_request, response) => {
+    response.json({ peers: walletNode.listPeers() });
+  });
+
+  app.post("/peers", async (request, response) => {
+    const peer = await walletNode.addPeer(request.body?.url);
+    const sync = await walletNode.syncFromPeer(request.body?.url);
+    response.status(201).json({ peer, sync });
+  });
+
+  app.get("/events", (_request, response) => {
+    response.json({ events: walletNode.listEvents() });
+  });
+
+  app.post("/events", async (request, response) => {
+    const result = await walletNode.receiveEvent(request.body?.event);
+    response.status(202).json(result);
+  });
+
+  app.use((request, response) => {
+    response.status(404).json({ error: "not found" });
+  });
+
+  app.use((error, _request, response, _next) => {
+    response.status(400).json({ error: error.message });
+  });
+
+  return app;
 }
 
 export async function startServer({
@@ -115,13 +78,13 @@ export async function startServer({
   const walletNode = new WalletNode({ dataDir });
   await walletNode.init();
 
-  const server = createServer({ walletNode });
+  const app = createApp({ walletNode });
 
-  await new Promise((resolve) => {
-    server.listen(port, host, resolve);
+  const server = await new Promise((resolve) => {
+    const instance = app.listen(port, host, () => resolve(instance));
   });
 
-  return { server, walletNode, port, host };
+  return { app, server, walletNode, port, host };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -1,8 +1,8 @@
 # Bit Lazarus
 
-Bit Lazarus is a lightweight peer-to-peer wallet node built with the Node.js
-standard library. Each node keeps local wallet balances, records transfers in a
-shared ledger, and gossips new transactions to configured peers over HTTP.
+Bit Lazarus is a lightweight peer-to-peer wallet node built with Express.js.
+Each node keeps local wallet balances, records transfers in a shared ledger,
+and gossips new transactions to configured peers over HTTP.
 
 ## API
 
