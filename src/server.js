@@ -1,5 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { AuthService } from "./auth-service.js";
 import { startBountyEscrowSync } from "./bounty-escrow-sync.js";
@@ -34,6 +35,7 @@ function canAccessEscrow(userId, escrow) {
 
 export function createApp({ walletNode, escrowService, authService, bountyService }) {
   const app = express();
+  const frontendDistPath = path.resolve("dist");
 
   app.use(express.json());
   app.use(async (request, _response, next) => {
@@ -309,6 +311,13 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
     const escrow = await escrowService.cancelEscrow(request.params.escrowId);
     response.json({ escrow });
   });
+
+  if (existsSync(frontendDistPath)) {
+    app.use("/app", express.static(frontendDistPath));
+    app.get(/^\/app(?:\/.*)?$/, (_request, response) => {
+      response.sendFile(path.join(frontendDistPath, "index.html"));
+    });
+  }
 
   app.use((request, response) => {
     response.status(404).json({ error: "not found" });

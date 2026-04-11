@@ -1,6 +1,6 @@
 .bitcoin-testnet/
 .codex
 node_modules/
+dist/
 data/
 *.log
-

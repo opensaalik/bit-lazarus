@@ -6,14 +6,24 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "frontend:dev": "vite",
+    "frontend:build": "vite build",
+    "frontend:preview": "vite preview"
   },
   "dependencies": {
     "bip322-js": "^3.0.0",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "three": "^0.183.2"
   },
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "vite": "^8.0.8"
+  }
 }
