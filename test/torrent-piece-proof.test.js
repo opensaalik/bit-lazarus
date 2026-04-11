@@ -35,7 +35,7 @@ test("generatePieceProof produces verifiable proof for a real torrent piece", as
   const { torrentBuffer, contentBuffer } = await loadFixture("fixture-a");
   const metadata = parseTorrentMetadata(torrentBuffer);
   const pieceBuffer = getPieceData(contentBuffer, metadata, 0);
-  const proof = generatePieceProof({
+  const proof = await generatePieceProof({
     torrentBuffer,
     contentBuffer,
     pieceIndex: 0,
@@ -54,12 +54,12 @@ test("generatePieceProof produces verifiable proof for a real torrent piece", as
   assert.equal(proof.revealRound, 70);
   assert.equal(proof.remainingScheduleWords.length, 9);
   assert.equal(verification.valid, true);
-  assert.equal(verification.digestHex, proof.pieceHashHex);
+  assert.equal(verification.computedPieceHashHex, proof.pieceHashHex);
 });
 
 test("generatePieceProof works for the last shorter piece", async () => {
   const { torrentBuffer, contentBuffer } = await loadFixture("fixture-b");
-  const proof = generatePieceProof({
+  const proof = await generatePieceProof({
     torrentBuffer,
     contentBuffer,
     pieceIndex: 2,
@@ -79,7 +79,7 @@ test("generatePieceProof works for the last shorter piece", async () => {
 
 test("verifyPieceProofFromRound rejects tampered schedule words", async () => {
   const { torrentBuffer, contentBuffer } = await loadFixture("fixture-a");
-  const proof = generatePieceProof({
+  const proof = await generatePieceProof({
     torrentBuffer,
     contentBuffer,
     pieceIndex: 1,
@@ -97,5 +97,5 @@ test("verifyPieceProofFromRound rejects tampered schedule words", async () => {
   });
 
   assert.equal(verification.valid, false);
-  assert.notEqual(verification.digestHex, proof.pieceHashHex);
+  assert.notEqual(verification.computedPieceHashHex, proof.pieceHashHex);
 });
