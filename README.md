@@ -101,9 +101,28 @@ curl http://127.0.0.1:3001/wallets/bob
 ```bash
 npm test
 npm start
+npm run frontend:dev
+npm run frontend:build
 ```
 
 The node persists its state inside `DATA_DIR/`.
+
+## Frontend
+
+The frontend is a Vite + React app with a Three.js hero experience. In
+development, run it with:
+
+```bash
+npm run frontend:dev
+```
+
+By default it proxies API requests to `http://127.0.0.1:3000`.
+
+A production build is served by the backend at:
+
+```text
+/app
+```
 
 ## Wallet Auth
 
