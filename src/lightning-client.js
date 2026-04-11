@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import http from "node:http";
-import https from "node:https";
 
 function encodeBase64FromHex(hex) {
   return Buffer.from(hex, "hex").toString("base64");
@@ -18,54 +16,47 @@ function normalizeBaseUrl(rawUrl) {
   return url.toString().replace(/\/$/, "");
 }
 
-function requestJson(urlString, { method = "GET", headers = {}, body, rejectUnauthorized = true } = {}) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(urlString);
-    const transport = url.protocol === "https:" ? https : http;
-    const request = transport.request(
-      {
-        protocol: url.protocol,
-        hostname: url.hostname,
-        port: url.port,
-        path: `${url.pathname}${url.search}`,
-        method,
-        headers,
-        rejectUnauthorized,
-      },
-      (response) => {
-        const chunks = [];
+async function requestJson(urlString, { method = "GET", headers = {}, body, rejectUnauthorized = true } = {}) {
+  const previousTlsMode = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 
-        response.on("data", (chunk) => chunks.push(chunk));
-        response.on("end", () => {
-          const payload = chunks.length === 0 ? "" : Buffer.concat(chunks).toString("utf8");
-          let parsedBody = null;
+  if (!rejectUnauthorized) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  }
 
-          if (payload) {
-            try {
-              parsedBody = JSON.parse(payload);
-            } catch (error) {
-              reject(new Error(`lightning node returned invalid JSON: ${error.message}`));
-              return;
-            }
-          }
+  let response;
 
-          resolve({
-            ok: response.statusCode >= 200 && response.statusCode < 300,
-            status: response.statusCode,
-            body: parsedBody,
-          });
-        });
-      },
-    );
-
-    request.on("error", reject);
-
-    if (body) {
-      request.write(JSON.stringify(body));
+  try {
+    response = await fetch(urlString, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } finally {
+    if (!rejectUnauthorized) {
+      if (previousTlsMode === undefined) {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      } else {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = previousTlsMode;
+      }
     }
+  }
 
-    request.end();
-  });
+  const payload = await response.text();
+  let parsedBody = null;
+
+  if (payload) {
+    try {
+      parsedBody = JSON.parse(payload);
+    } catch (error) {
+      throw new Error(`lightning node returned invalid JSON: ${error.message}`);
+    }
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: parsedBody,
+  };
 }
 
 function assertAmount(amountSats) {
@@ -262,4 +253,3 @@ export function createLightningClientFromEnv(environment = process.env) {
 
   throw new Error(`unsupported lightning backend: ${backend}`);
 }
-
