@@ -7,6 +7,7 @@ import { startBountyEscrowSync } from "./bounty-escrow-sync.js";
 import { BountyService } from "./bounty-service.js";
 import { EscrowService } from "./escrow-service.js";
 import { createLightningClientFromEnv } from "./lightning-client.js";
+import { ProtocolService } from "./protocol-service.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { WalletNode } from "./wallet-node.js";
 
@@ -33,7 +34,19 @@ function canAccessEscrow(userId, escrow) {
   return [escrow.buyerId, escrow.sellerId, escrow.mediatorId].filter(Boolean).includes(userId);
 }
 
-export function createApp({ walletNode, escrowService, authService, bountyService }) {
+function canAccessBounty(userId, bounty) {
+  return bounty.creatorUserId === userId || bounty.hunters.some((hunter) => hunter.userId === userId);
+}
+
+function canAccessVerificationSession(userId, session) {
+  return [session.payerUserId, session.hunterUserId].includes(userId);
+}
+
+function canAccessDeliveryContract(userId, contract) {
+  return [contract.payerUserId, contract.hunterUserId].includes(userId);
+}
+
+export function createApp({ walletNode, escrowService, authService, bountyService, protocolService }) {
   const app = express();
   const frontendDistPath = path.resolve("dist");
 
@@ -199,6 +212,92 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
     response.json({ bounty });
   });
 
+  app.get("/bounties/:bountyId/verification-sessions", requireAuth, (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    if (!canAccessBounty(request.auth.user.id, bounty)) {
+      response.status(403).json({ error: "bounty access denied" });
+      return;
+    }
+
+    const verificationSessions = protocolService.listVerificationSessions({ bountyId: bounty.id });
+    response.json({ verificationSessions });
+  });
+
+  app.get("/bounties/:bountyId/contracts", requireAuth, (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    if (!canAccessBounty(request.auth.user.id, bounty)) {
+      response.status(403).json({ error: "bounty access denied" });
+      return;
+    }
+
+    const contracts = protocolService.listDeliveryContracts({ bountyId: bounty.id });
+    response.json({ contracts });
+  });
+
+  app.post("/bounties/:bountyId/verification-sessions", requireAuth, async (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    if (bounty.status !== "OPEN") {
+      response.status(409).json({ error: "bounty must be OPEN before verification can start" });
+      return;
+    }
+
+    if (request.auth.user.id === bounty.creatorUserId) {
+      response.status(403).json({ error: "bounty creators cannot open hunter verification sessions" });
+      return;
+    }
+
+    if (!bounty.hunters.some((hunter) => hunter.userId === request.auth.user.id)) {
+      response.status(403).json({ error: "only joined hunters can start verification sessions" });
+      return;
+    }
+
+    const pieceIndexes = Array.isArray(request.body?.pieceIndexes)
+      ? request.body.pieceIndexes
+      : bounty.missingPieces;
+
+    for (const pieceIndex of pieceIndexes) {
+      if (!bounty.missingPieces.includes(pieceIndex)) {
+        response.status(400).json({ error: `piece ${pieceIndex} is not listed as missing for this bounty` });
+        return;
+      }
+    }
+
+    const verificationSession = await protocolService.createVerificationSession({
+      bountyId: bounty.id,
+      payerUserId: bounty.creatorUserId,
+      hunterUserId: request.auth.user.id,
+      pieceIndexes,
+      torrentInfoHash: bounty.torrentInfoHash,
+    });
+    await bountyService.registerVerificationSession({
+      bountyId: bounty.id,
+      verificationSessionId: verificationSession.id,
+    });
+    await bountyService.updateProtocolState({
+      bountyId: bounty.id,
+      deliveryStatus: "PROOF_IN_PROGRESS",
+    });
+    response.status(201).json({ verificationSession });
+  });
+
   app.post("/bounties/:bountyId/hunt", requireAuth, async (request, response) => {
     const bounty = await bountyService.joinBounty({
       bountyId: request.params.bountyId,
@@ -223,6 +322,193 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       funding: escrow.funding,
     });
     response.json({ bounty, escrow });
+  });
+
+  app.get("/verification-sessions/:sessionId", requireAuth, (request, response) => {
+    const verificationSession = protocolService.getVerificationSession(request.params.sessionId);
+
+    if (!verificationSession) {
+      response.status(404).json({ error: "verification session not found" });
+      return;
+    }
+
+    if (!canAccessVerificationSession(request.auth.user.id, verificationSession)) {
+      response.status(403).json({ error: "verification session access denied" });
+      return;
+    }
+
+    response.json({ verificationSession });
+  });
+
+  app.post("/verification-sessions/:sessionId/proof", requireAuth, async (request, response) => {
+    const verificationSession = protocolService.getVerificationSession(request.params.sessionId);
+
+    if (!verificationSession) {
+      response.status(404).json({ error: "verification session not found" });
+      return;
+    }
+
+    if (verificationSession.hunterUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the assigned hunter can submit proof" });
+      return;
+    }
+
+    const updatedSession = await protocolService.submitProofArtifacts({
+      sessionId: verificationSession.id,
+      hunterUserId: request.auth.user.id,
+      proofArtifacts: request.body?.proofArtifacts,
+    });
+    response.json({ verificationSession: updatedSession });
+  });
+
+  app.post("/verification-sessions/:sessionId/verify", requireAuth, async (request, response) => {
+    const verificationSession = protocolService.getVerificationSession(request.params.sessionId);
+
+    if (!verificationSession) {
+      response.status(404).json({ error: "verification session not found" });
+      return;
+    }
+
+    if (verificationSession.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the payer can verify proof sessions" });
+      return;
+    }
+
+    const updatedSession = await protocolService.markProofVerified({
+      sessionId: verificationSession.id,
+      payerUserId: request.auth.user.id,
+      verifiedPieceIndexes: request.body?.verifiedPieceIndexes,
+      verificationSummary: request.body?.verificationSummary,
+    });
+    await bountyService.updateProtocolState({
+      bountyId: updatedSession.bountyId,
+      deliveryStatus: "PROOF_VERIFIED",
+    });
+    response.json({ verificationSession: updatedSession });
+  });
+
+  app.post("/verification-sessions/:sessionId/contracts", requireAuth, async (request, response) => {
+    const verificationSession = protocolService.getVerificationSession(request.params.sessionId);
+
+    if (!verificationSession) {
+      response.status(404).json({ error: "verification session not found" });
+      return;
+    }
+
+    if (verificationSession.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the payer can create delivery contracts" });
+      return;
+    }
+
+    const bounty = bountyService.getBounty(verificationSession.bountyId);
+    const payer = authService.getUser(verificationSession.payerUserId);
+    const hunter = authService.getUser(verificationSession.hunterUserId);
+    const contract = await protocolService.createDeliveryContract({
+      sessionId: verificationSession.id,
+      bountyId: verificationSession.bountyId,
+      payerUserId: verificationSession.payerUserId,
+      hunterUserId: verificationSession.hunterUserId,
+      payerWalletAddress: payer.walletAddress,
+      hunterWalletAddress: hunter.walletAddress,
+      pieceIndexes: request.body?.pieceIndexes ?? verificationSession.verifiedPieceIndexes,
+      rewardEscrowId: bounty.escrowId,
+    });
+    await bountyService.registerDeliveryContract({
+      bountyId: bounty.id,
+      contractId: contract.id,
+    });
+    response.status(201).json({ contract });
+  });
+
+  app.get("/contracts/:contractId", requireAuth, (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+
+    response.json({ contract });
+  });
+
+  app.post("/contracts/:contractId/bonds", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the payer can update bond status" });
+      return;
+    }
+
+    const updatedContract = await protocolService.updateContractBondEscrows({
+      contractId: contract.id,
+      payerUserId: request.auth.user.id,
+      payerBondEscrowId: request.body?.payerBondEscrowId,
+      hunterBondEscrowId: request.body?.hunterBondEscrowId,
+      payerBondStatus: request.body?.payerBondStatus,
+      hunterBondStatus: request.body?.hunterBondStatus,
+    });
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+    });
+    response.json({ contract: updatedContract });
+  });
+
+  app.get("/contracts/:contractId/receipts", requireAuth, (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+
+    const receipts = protocolService.listPieceReceipts({ contractId: contract.id });
+    response.json({ receipts });
+  });
+
+  app.post("/contracts/:contractId/receipts", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the payer can submit receipts" });
+      return;
+    }
+
+    const receipt = await protocolService.submitPieceReceipt({
+      contractId: contract.id,
+      payerUserId: request.auth.user.id,
+      receiptSignerWalletAddress: request.body?.receiptSignerWalletAddress,
+      pieceIndex: request.body?.pieceIndex,
+      receiptMessage: request.body?.receiptMessage,
+      receiptSignature: request.body?.receiptSignature,
+    });
+    const updatedContract = protocolService.getDeliveryContract(contract.id);
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+    response.status(201).json({ receipt, contract: updatedContract });
   });
 
   app.get("/escrows", requireAuth, (request, response) => {
@@ -344,6 +630,11 @@ export async function startServer({
     verifier: authVerifier,
   });
   await authService.init();
+  const protocolService = new ProtocolService({
+    dataDir: path.join(dataDir, "protocol"),
+    verifier: authVerifier,
+  });
+  await protocolService.init();
   const lightningClient = createLightningClientFromEnv(process.env);
   const bountyService = new BountyService({
     dataDir: path.join(dataDir, "bounties"),
@@ -355,7 +646,7 @@ export async function startServer({
   });
   await escrowService.init();
 
-  const app = createApp({ walletNode, escrowService, authService, bountyService });
+  const app = createApp({ walletNode, escrowService, authService, bountyService, protocolService });
 
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));
@@ -366,9 +657,17 @@ export async function startServer({
     escrowService,
     intervalMs: bountyEscrowSyncIntervalMs,
   });
+  const protocolSweepTimer = setInterval(() => {
+    void protocolService.sweepExpiredStates();
+  }, bountyEscrowSyncIntervalMs);
+
+  if (typeof protocolSweepTimer.unref === "function") {
+    protocolSweepTimer.unref();
+  }
 
   server.on("close", () => {
     bountyEscrowSync.stop();
+    clearInterval(protocolSweepTimer);
   });
 
   return {
@@ -378,6 +677,7 @@ export async function startServer({
     escrowService,
     authService,
     bountyService,
+    protocolService,
     bountyEscrowSync,
     port,
     host,

@@ -16,7 +16,8 @@
     "express": "^5.1.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "webtorrent": "^2.8.5"
   },
   "engines": {
     "node": ">=20"

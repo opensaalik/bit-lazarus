@@ -177,11 +177,15 @@ export class BountyService {
       tags: normalizeTags(tags),
       status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
       verificationMode: "manual",
+      deliveryStatus: "IDLE",
+      completionReadiness: "PENDING",
       createdAt: timestamp,
       updatedAt: timestamp,
       escrowId,
       escrowStatus,
       funding,
+      verificationSessionIds: [],
+      activeContractIds: [],
       hunters: [],
     };
 
@@ -234,6 +238,55 @@ export class BountyService {
     bounty.escrowStatus = escrowStatus;
     bounty.status = BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? bounty.status;
     bounty.funding = funding ?? bounty.funding;
+    bounty.updatedAt = this.now();
+    await this.persist();
+    return bounty;
+  }
+
+  async registerVerificationSession({ bountyId, verificationSessionId }) {
+    assertString(bountyId, "bountyId");
+    assertString(verificationSessionId, "verificationSessionId");
+
+    const bounty = this.requireBounty(bountyId);
+
+    if (!bounty.verificationSessionIds.includes(verificationSessionId)) {
+      bounty.verificationSessionIds.push(verificationSessionId);
+      bounty.updatedAt = this.now();
+      await this.persist();
+    }
+
+    return bounty;
+  }
+
+  async registerDeliveryContract({ bountyId, contractId }) {
+    assertString(bountyId, "bountyId");
+    assertString(contractId, "contractId");
+
+    const bounty = this.requireBounty(bountyId);
+
+    if (!bounty.activeContractIds.includes(contractId)) {
+      bounty.activeContractIds.push(contractId);
+      bounty.deliveryStatus = "CONTRACT_PENDING";
+      bounty.updatedAt = this.now();
+      await this.persist();
+    }
+
+    return bounty;
+  }
+
+  async updateProtocolState({ bountyId, deliveryStatus, completionReadiness }) {
+    assertString(bountyId, "bountyId");
+
+    const bounty = this.requireBounty(bountyId);
+
+    if (deliveryStatus) {
+      bounty.deliveryStatus = deliveryStatus;
+    }
+
+    if (completionReadiness) {
+      bounty.completionReadiness = completionReadiness;
+    }
+
     bounty.updatedAt = this.now();
     await this.persist();
     return bounty;

@@ -44,6 +44,17 @@ bounty hunters who intend to seed the missing data.
 - `GET /bounties/:id` returns one bounty.
 - `POST /bounties/:id/hunt` joins a bounty as a hunter.
 - `POST /bounties/:id/sync-escrow` force-refreshes bounty funding state from its escrow.
+- `GET /bounties/:id/verification-sessions` lists bounty verification sessions.
+- `POST /bounties/:id/verification-sessions` opens a proof challenge session for a joined hunter.
+- `GET /bounties/:id/contracts` lists delivery contracts for a bounty.
+- `GET /verification-sessions/:id` returns a verification session.
+- `POST /verification-sessions/:id/proof` submits hunter proof artifacts.
+- `POST /verification-sessions/:id/verify` records payer-side proof verification.
+- `POST /verification-sessions/:id/contracts` creates a delivery contract from a verified proof session.
+- `GET /contracts/:id` returns a delivery contract.
+- `POST /contracts/:id/bonds` records payer/hunter bond escrow references and funding status.
+- `GET /contracts/:id/receipts` lists signed piece receipts.
+- `POST /contracts/:id/receipts` records a payer-signed piece receipt.
 
 ## Running A Node
 
@@ -231,6 +242,23 @@ curl -X POST http://127.0.0.1:3000/bounties/<bounty-id>/sync-escrow \
 The current backend only saves bounty state, attached escrow metadata, and
 hunter intent. Piece-proof verification, seeding verification, and fully
 automatic completion syncing still need to be implemented later.
+
+## Verification Protocol Backend
+
+The backend now persists the first protocol slice for trust-minimized delivery:
+
+- `verification sessions`: challenge windows for specific missing pieces
+- `delivery contracts`: proof-verified contracts with payer and hunter bond state
+- `piece receipts`: payer-signed delivery acknowledgements
+
+These records are stored and state-tracked by the backend, but the proof
+generation and torrent transfer are still intended to be client-side.
+
+## WebTorrent
+
+The frontend now includes a WebTorrent client boundary in
+`frontend/src/lib/webtorrent-client.js` for the upcoming torrent metadata,
+download, and seeding workflow.
 
 To use a real Bitcoin verifier, switch the auth backend:
 
