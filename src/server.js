@@ -1,8 +1,10 @@
 import express from "express";
 import path from "node:path";
+import { EscrowService } from "./escrow-service.js";
+import { createLightningClientFromEnv } from "./lightning-client.js";
 import { WalletNode } from "./wallet-node.js";
 
-export function createApp({ walletNode }) {
+export function createApp({ walletNode, escrowService }) {
   const app = express();
 
   app.use(express.json());
@@ -59,6 +61,41 @@ export function createApp({ walletNode }) {
     response.status(202).json(result);
   });
 
+  app.get("/escrows", (_request, response) => {
+    response.json({ escrows: escrowService.listEscrows() });
+  });
+
+  app.post("/escrows", async (request, response) => {
+    const escrow = await escrowService.createEscrow(request.body ?? {});
+    response.status(201).json({ escrow });
+  });
+
+  app.get("/escrows/:escrowId", (request, response) => {
+    const escrow = escrowService.getEscrow(request.params.escrowId);
+
+    if (!escrow) {
+      response.status(404).json({ error: "escrow not found" });
+      return;
+    }
+
+    response.json({ escrow });
+  });
+
+  app.post("/escrows/:escrowId/sync", async (request, response) => {
+    const escrow = await escrowService.syncEscrow(request.params.escrowId);
+    response.json({ escrow });
+  });
+
+  app.post("/escrows/:escrowId/release", async (request, response) => {
+    const escrow = await escrowService.releaseEscrow(request.params.escrowId);
+    response.json({ escrow });
+  });
+
+  app.post("/escrows/:escrowId/cancel", async (request, response) => {
+    const escrow = await escrowService.cancelEscrow(request.params.escrowId);
+    response.json({ escrow });
+  });
+
   app.use((request, response) => {
     response.status(404).json({ error: "not found" });
   });
@@ -75,16 +112,22 @@ export async function startServer({
   host = process.env.HOST ?? "127.0.0.1",
   dataDir = process.env.DATA_DIR ?? path.resolve("data"),
 } = {}) {
-  const walletNode = new WalletNode({ dataDir });
+  const walletNode = new WalletNode({ dataDir: path.join(dataDir, "wallet-node") });
   await walletNode.init();
+  const lightningClient = createLightningClientFromEnv(process.env);
+  const escrowService = new EscrowService({
+    dataDir: path.join(dataDir, "escrow"),
+    lightningClient,
+  });
+  await escrowService.init();
 
-  const app = createApp({ walletNode });
+  const app = createApp({ walletNode, escrowService });
 
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));
   });
 
-  return { app, server, walletNode, port, host };
+  return { app, server, walletNode, escrowService, port, host };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -1,0 +1,265 @@
+import crypto from "node:crypto";
+import http from "node:http";
+import https from "node:https";
+
+function encodeBase64FromHex(hex) {
+  return Buffer.from(hex, "hex").toString("base64");
+}
+
+function decodeHexFromBase64(base64) {
+  return Buffer.from(base64, "base64").toString("hex");
+}
+
+function normalizeBaseUrl(rawUrl) {
+  const url = new URL(rawUrl);
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
+function requestJson(urlString, { method = "GET", headers = {}, body, rejectUnauthorized = true } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    const transport = url.protocol === "https:" ? https : http;
+    const request = transport.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers,
+        rejectUnauthorized,
+      },
+      (response) => {
+        const chunks = [];
+
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const payload = chunks.length === 0 ? "" : Buffer.concat(chunks).toString("utf8");
+          let parsedBody = null;
+
+          if (payload) {
+            try {
+              parsedBody = JSON.parse(payload);
+            } catch (error) {
+              reject(new Error(`lightning node returned invalid JSON: ${error.message}`));
+              return;
+            }
+          }
+
+          resolve({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            status: response.statusCode,
+            body: parsedBody,
+          });
+        });
+      },
+    );
+
+    request.on("error", reject);
+
+    if (body) {
+      request.write(JSON.stringify(body));
+    }
+
+    request.end();
+  });
+}
+
+function assertAmount(amountSats) {
+  if (!Number.isInteger(amountSats) || amountSats <= 0) {
+    throw new Error("amountSats must be a positive integer");
+  }
+}
+
+export class MockLightningClient {
+  constructor() {
+    this.invoices = new Map();
+    this.nextAddIndex = 1;
+  }
+
+  async createHoldInvoice({ hashHex, amountSats, memo, expirySeconds = 3600 }) {
+    assertAmount(amountSats);
+
+    const invoice = {
+      paymentHashHex: hashHex,
+      paymentRequest: `lnmocktestnet-${hashHex}`,
+      paymentAddr: crypto.randomBytes(32).toString("hex"),
+      addIndex: String(this.nextAddIndex++),
+      memo,
+      amountSats,
+      expirySeconds,
+      state: "OPEN",
+    };
+
+    this.invoices.set(hashHex, invoice);
+    return invoice;
+  }
+
+  async lookupInvoice({ paymentHashHex }) {
+    const invoice = this.invoices.get(paymentHashHex);
+
+    if (!invoice) {
+      throw new Error(`unknown invoice: ${paymentHashHex}`);
+    }
+
+    return {
+      paymentHashHex,
+      paymentRequest: invoice.paymentRequest,
+      paymentAddr: invoice.paymentAddr,
+      addIndex: invoice.addIndex,
+      state: invoice.state,
+      amountSats: invoice.amountSats,
+    };
+  }
+
+  async cancelHoldInvoice({ paymentHashHex }) {
+    const invoice = this.invoices.get(paymentHashHex);
+
+    if (!invoice) {
+      throw new Error(`unknown invoice: ${paymentHashHex}`);
+    }
+
+    invoice.state = "CANCELED";
+    return { state: invoice.state };
+  }
+
+  async settleHoldInvoice({ preimageHex }) {
+    const paymentHashHex = crypto.createHash("sha256").update(Buffer.from(preimageHex, "hex")).digest("hex");
+    const invoice = this.invoices.get(paymentHashHex);
+
+    if (!invoice) {
+      throw new Error(`unknown invoice for preimage: ${paymentHashHex}`);
+    }
+
+    invoice.state = "SETTLED";
+    return { state: invoice.state };
+  }
+
+  async acceptHoldInvoice({ paymentHashHex }) {
+    const invoice = this.invoices.get(paymentHashHex);
+
+    if (!invoice) {
+      throw new Error(`unknown invoice: ${paymentHashHex}`);
+    }
+
+    invoice.state = "ACCEPTED";
+    return { state: invoice.state };
+  }
+}
+
+export class LndRestLightningClient {
+  constructor({ baseUrl, macaroonHex, rejectUnauthorized = true } = {}) {
+    if (!baseUrl) {
+      throw new Error("LIGHTNING_LND_REST_URL is required for the lnd-rest backend");
+    }
+
+    if (!macaroonHex) {
+      throw new Error("LIGHTNING_LND_MACAROON_HEX is required for the lnd-rest backend");
+    }
+
+    this.baseUrl = normalizeBaseUrl(baseUrl);
+    this.macaroonHex = macaroonHex;
+    this.rejectUnauthorized = rejectUnauthorized;
+  }
+
+  async createHoldInvoice({ hashHex, amountSats, memo, expirySeconds = 3600 }) {
+    assertAmount(amountSats);
+
+    const result = await this.request("/v2/invoices/hodl", {
+      method: "POST",
+      body: {
+        memo,
+        hash: encodeBase64FromHex(hashHex),
+        value: String(amountSats),
+        expiry: String(expirySeconds),
+      },
+    });
+
+    return {
+      paymentHashHex: hashHex,
+      paymentRequest: result.payment_request,
+      paymentAddr: result.payment_addr ? decodeHexFromBase64(result.payment_addr) : null,
+      addIndex: result.add_index,
+      state: "OPEN",
+      amountSats,
+    };
+  }
+
+  async lookupInvoice({ paymentHashHex }) {
+    const query = new URLSearchParams({
+      payment_hash: encodeBase64FromHex(paymentHashHex),
+    });
+    const result = await this.request(`/v2/invoices/lookup?${query.toString()}`);
+
+    return {
+      paymentHashHex,
+      paymentRequest: result.payment_request,
+      paymentAddr: result.payment_addr ? decodeHexFromBase64(result.payment_addr) : null,
+      addIndex: result.add_index,
+      state: result.state,
+      amountSats: Number.parseInt(result.value ?? "0", 10),
+    };
+  }
+
+  async cancelHoldInvoice({ paymentHashHex }) {
+    const result = await this.request("/v2/invoices/cancel", {
+      method: "POST",
+      body: {
+        payment_hash: encodeBase64FromHex(paymentHashHex),
+      },
+    });
+
+    return { state: result.state ?? "CANCELED" };
+  }
+
+  async settleHoldInvoice({ preimageHex }) {
+    const result = await this.request("/v2/invoices/settle", {
+      method: "POST",
+      body: {
+        preimage: encodeBase64FromHex(preimageHex),
+      },
+    });
+
+    return { state: result.state ?? "SETTLED" };
+  }
+
+  async request(pathname, options = {}) {
+    const response = await requestJson(`${this.baseUrl}${pathname}`, {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        "Grpc-Metadata-macaroon": this.macaroonHex,
+      },
+      rejectUnauthorized: this.rejectUnauthorized,
+    });
+
+    if (!response.ok) {
+      const message = response.body?.error ?? response.body?.message ?? `lightning request failed: ${response.status}`;
+      throw new Error(message);
+    }
+
+    return response.body ?? {};
+  }
+}
+
+export function createLightningClientFromEnv(environment = process.env) {
+  const backend = environment.LIGHTNING_BACKEND ?? "mock";
+
+  if (backend === "mock") {
+    return new MockLightningClient();
+  }
+
+  if (backend === "lnd-rest") {
+    return new LndRestLightningClient({
+      baseUrl: environment.LIGHTNING_LND_REST_URL,
+      macaroonHex: environment.LIGHTNING_LND_MACAROON_HEX,
+      rejectUnauthorized: environment.LIGHTNING_LND_TLS_SKIP_VERIFY !== "1",
+    });
+  }
+
+  throw new Error(`unsupported lightning backend: ${backend}`);
+}
+
