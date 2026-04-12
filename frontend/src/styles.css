@@ -62,9 +62,272 @@ input::placeholder {
 }
 
 .hero-grid,
-.dashboard-grid {
+.dashboard-grid,
+.layout-stack {
   position: relative;
   z-index: 1;
+}
+
+.layout-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.layout-stack-no-hero {
+  padding-top: 8px;
+}
+
+.main-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  border-radius: 24px;
+}
+
+.main-nav-brand {
+  flex-shrink: 0;
+}
+
+.main-nav-logo {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #f5eee2;
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.main-nav-logo:hover {
+  color: #ffb160;
+}
+
+.main-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.nav-link {
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: rgba(245, 238, 226, 0.72);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.nav-link:hover {
+  color: #f5eee2;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-link-active {
+  color: #1f120d;
+  background: linear-gradient(135deg, rgba(255, 141, 67, 0.95), rgba(255, 96, 68, 0.95));
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.main-nav-session {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-wallet-chip {
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 229, 216, 0.35);
+  color: #7de5d8;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-logout {
+  padding: 10px 16px;
+  font-size: 0.88rem;
+}
+
+.nav-guest {
+  font-size: 0.88rem;
+}
+
+.layout-status {
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 20px;
+}
+
+.page-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.home-cta-row {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.home-cta {
+  text-decoration: none;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-extension-hint {
+  font-size: 0.85rem;
+}
+
+.home-disconnect-hint {
+  font-size: 0.82rem;
+  margin-top: 4px;
+}
+
+.marketplace-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.marketplace-search {
+  grid-column: span 1;
+}
+
+.field select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5eee2;
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23f5eee2' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  padding-right: 40px;
+}
+
+.field select option {
+  background: #0d1524;
+  color: #f5eee2;
+}
+
+.bounty-card .eyebrow {
+  margin-bottom: 6px;
+}
+
+.bounty-card-compact .detail-grid {
+  margin-bottom: 8px;
+}
+
+.bounty-card-compact .bounty-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bounty-card-compact .chip-row {
+  margin-bottom: 4px;
+}
+
+.bounty-card-footer {
+  margin-top: 12px;
+}
+
+.bounty-open-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bounty-card-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-pill {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 180, 96, 0.2);
+  color: #ffd48a;
+}
+
+.role-pill-open {
+  background: rgba(43, 209, 200, 0.15);
+  color: #7de5d8;
+}
+
+.detail-back {
+  position: relative;
+  z-index: 1;
+}
+
+.detail-back-link {
+  display: inline-flex;
+  text-decoration: none;
+  margin-bottom: 4px;
+}
+
+.detail-panel {
+  padding: 28px;
+}
+
+.detail-panel > .bounty-card {
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.activity-main .bounty-card.empty {
+  min-height: 120px;
+}
+
+a.primary-button,
+a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  text-align: center;
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: rgba(125, 229, 216, 0.4);
+  box-shadow: 0 0 0 3px rgba(125, 229, 216, 0.08);
 }
 
 .hero-grid {
@@ -163,7 +426,8 @@ input::placeholder {
 }
 
 .command-column > .glass-panel,
-.dashboard-grid > .glass-panel {
+.dashboard-grid > .glass-panel,
+.page-main > .glass-panel {
   padding: 28px;
 }
 
@@ -171,6 +435,12 @@ input::placeholder {
   margin: 0;
   font-size: 1.8rem;
   line-height: 1.05;
+}
+
+.panel-head h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.1;
 }
 
 .field {
@@ -347,8 +617,8 @@ input::placeholder {
 .drop-zone {
   grid-column: 1 / -1;
   border: 2px dashed rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  padding: 28px;
+  border-radius: 20px;
+  padding: 32px 28px;
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
   text-align: center;
@@ -449,8 +719,8 @@ input::placeholder {
 
 .torrent-preview {
   border: 1px solid rgba(125, 229, 216, 0.25);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 20px;
+  padding: 22px;
 }
 
 .torrent-preview-head {
@@ -525,8 +795,10 @@ input::placeholder {
 
   .hero-copy,
   .command-column > .glass-panel,
-  .dashboard-grid > .glass-panel {
-    padding: 22px;
+  .dashboard-grid > .glass-panel,
+  .page-main > .glass-panel,
+  .detail-panel {
+    padding: 18px;
   }
 
   .hero-copy h1 {
@@ -536,7 +808,8 @@ input::placeholder {
 
   .hero-metrics,
   .bounty-form,
-  .detail-grid {
+  .detail-grid,
+  .marketplace-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -546,5 +819,18 @@ input::placeholder {
 
   .button-row {
     flex-direction: column;
+  }
+
+  .main-nav {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .main-nav-links {
+    justify-content: center;
+  }
+
+  .main-nav-session {
+    justify-content: space-between;
   }
 }
