@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { verifyNostrEvent } from "./wallet-auth-verifier.js";
 
 function assertString(value, fieldName) {
   if (!value || typeof value !== "string") {
@@ -49,6 +50,35 @@ function normalizeOptionalString(value) {
 
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+function assertPositiveSafeInteger(value, fieldName) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive integer`);
+  }
+}
+
+function assertSha256Hex(value, fieldName) {
+  assertString(value, fieldName);
+  const normalized = value.trim().toLowerCase();
+
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a 64-character hex string`);
+  }
+
+  return normalized;
+}
+
+function normalizeDeliveryVerificationMode(value) {
+  if (value === undefined || value === null || value === "") {
+    return "receipt";
+  }
+
+  if (value !== "receipt" && value !== "torrent-hash") {
+    throw new Error("deliveryVerificationMode must be either receipt or torrent-hash");
+  }
+
+  return value;
 }
 
 function isExpired(isoTimestamp, now) {
@@ -256,6 +286,7 @@ export class ProtocolService {
     hunterWalletAddress,
     pieceIndexes,
     rewardEscrowId,
+    deliveryVerificationMode = "receipt",
   }) {
     assertString(sessionId, "sessionId");
     assertString(bountyId, "bountyId");
@@ -279,6 +310,7 @@ export class ProtocolService {
       throw new Error("a delivery contract already exists for this session");
     }
 
+    const normalizedDeliveryVerificationMode = normalizeDeliveryVerificationMode(deliveryVerificationMode);
     const now = this.now();
     const contract = {
       id: contractId,
@@ -290,14 +322,23 @@ export class ProtocolService {
       hunterWalletAddress,
       pieceIndexes: assertPieceIndexes(pieceIndexes),
       rewardEscrowId,
+      deliveryVerificationMode: normalizedDeliveryVerificationMode,
       payerBondEscrowId: null,
       hunterBondEscrowId: null,
       payerBondStatus: "PENDING",
       hunterBondStatus: "PENDING",
       payerPayoutPaymentRequest: null,
       hunterPayoutPaymentRequest: null,
-      requiredReceipts: assertPieceIndexes(pieceIndexes).length,
+      requiredReceipts: normalizedDeliveryVerificationMode === "receipt" ? assertPieceIndexes(pieceIndexes).length : 0,
       receiptIds: [],
+      hunterDeliveryFileSha256: null,
+      hunterDeliveryFileName: null,
+      hunterDeliveryFileSize: null,
+      hunterDeliveryCommittedAt: null,
+      requesterDeliveryFileSha256: null,
+      requesterDeliveryConfirmedAt: null,
+      deliveryHashStatus: "PENDING",
+      deliveryHashVerifiedAt: null,
       state: "BOND_PENDING",
       resolutionReadiness: "PENDING",
       createdAt: now,
@@ -538,6 +579,100 @@ export class ProtocolService {
     return contract;
   }
 
+  async registerHunterDeliveryFile({
+    contractId,
+    hunterUserId,
+    fileSha256,
+    fileName = null,
+    fileSize = null,
+  }) {
+    assertString(contractId, "contractId");
+    assertString(hunterUserId, "hunterUserId");
+
+    const contract = this.requireDeliveryContract(contractId);
+    this.assertContractActive(contract);
+
+    if ((contract.deliveryVerificationMode ?? "receipt") !== "torrent-hash") {
+      throw new Error("this contract does not use torrent-hash delivery verification");
+    }
+
+    if (contract.hunterUserId !== hunterUserId) {
+      throw new Error("only the assigned hunter can commit the delivery file hash");
+    }
+
+    if (contract.state !== "DELIVERY_IN_PROGRESS") {
+      throw new Error("the delivery phase must be active before the hunter can start seeding");
+    }
+
+    contract.hunterDeliveryFileSha256 = assertSha256Hex(fileSha256, "fileSha256");
+    contract.hunterDeliveryFileName = normalizeOptionalString(fileName);
+    contract.hunterDeliveryFileSize = fileSize == null ? null : assertPositiveSafeInteger(fileSize, "fileSize");
+    contract.hunterDeliveryCommittedAt = this.now();
+    contract.requesterDeliveryFileSha256 = null;
+    contract.requesterDeliveryConfirmedAt = null;
+    contract.deliveryHashVerifiedAt = null;
+    contract.deliveryHashStatus = "HUNTER_COMMITTED";
+    contract.resolutionReadiness = "PENDING";
+    contract.updatedAt = this.now();
+    await this.persist();
+    return contract;
+  }
+
+  async confirmRequesterDeliveryFile({
+    contractId,
+    payerUserId,
+    fileSha256,
+  }) {
+    assertString(contractId, "contractId");
+    assertString(payerUserId, "payerUserId");
+
+    const contract = this.requireDeliveryContract(contractId);
+    this.assertContractActive(contract);
+
+    if ((contract.deliveryVerificationMode ?? "receipt") !== "torrent-hash") {
+      throw new Error("this contract does not use torrent-hash delivery verification");
+    }
+
+    if (contract.payerUserId !== payerUserId) {
+      throw new Error("only the payer can confirm the delivered file hash");
+    }
+
+    if (contract.state !== "DELIVERY_IN_PROGRESS") {
+      throw new Error("the delivery phase is not active");
+    }
+
+    if (!contract.hunterDeliveryFileSha256) {
+      throw new Error("the hunter must commit a delivery file hash before confirmation");
+    }
+
+    const normalizedFileSha256 = assertSha256Hex(fileSha256, "fileSha256");
+    contract.requesterDeliveryFileSha256 = normalizedFileSha256;
+    contract.requesterDeliveryConfirmedAt = this.now();
+
+    if (normalizedFileSha256 === contract.hunterDeliveryFileSha256) {
+      contract.deliveryHashStatus = "MATCHED";
+      contract.deliveryHashVerifiedAt = this.now();
+      contract.state = "DELIVERY_VERIFIED";
+      contract.resolutionReadiness = "READY_FOR_RESOLUTION_SUCCESS";
+
+      if (this.escrowService) {
+        try {
+          await this.resolveContract({ contractId: contract.id, outcome: "SUCCESS" });
+        } catch (_resolveError) {
+          // Resolution will be retried by payout invoice registration or the sweep timer if needed.
+        }
+      }
+    } else {
+      contract.deliveryHashStatus = "MISMATCHED";
+      contract.deliveryHashVerifiedAt = null;
+      contract.resolutionReadiness = "PENDING_HASH_MISMATCH";
+    }
+
+    contract.updatedAt = this.now();
+    await this.persist();
+    return contract;
+  }
+
   listPieceReceipts({ contractId } = {}) {
     return [...this.pieceReceipts.values()].filter((receipt) => {
       if (contractId && receipt.contractId !== contractId) {
@@ -555,12 +690,24 @@ export class ProtocolService {
     pieceIndex,
     receiptMessage,
     receiptSignature,
+    receiptSignedEvent = null,
   }) {
     assertString(contractId, "contractId");
     assertString(payerUserId, "payerUserId");
     assertString(receiptSignerWalletAddress, "receiptSignerWalletAddress");
     assertString(receiptMessage, "receiptMessage");
-    assertString(receiptSignature, "receiptSignature");
+
+    if (receiptSignature !== null && receiptSignature !== undefined && typeof receiptSignature !== "string") {
+      throw new Error("receiptSignature must be a string");
+    }
+
+    if (receiptSignedEvent !== null && receiptSignedEvent !== undefined && typeof receiptSignedEvent !== "object") {
+      throw new Error("receiptSignedEvent must be an object");
+    }
+
+    if (!receiptSignature && !receiptSignedEvent) {
+      throw new Error("receiptSignature or receiptSignedEvent is required");
+    }
 
     if (!Number.isInteger(pieceIndex) || pieceIndex < 0) {
       throw new Error("pieceIndex must be a non-negative integer");
@@ -568,6 +715,10 @@ export class ProtocolService {
 
     const contract = this.requireDeliveryContract(contractId);
     this.assertContractActive(contract);
+
+    if ((contract.deliveryVerificationMode ?? "receipt") !== "receipt") {
+      throw new Error("piece receipts are only supported for receipt-verified contracts");
+    }
 
     if (contract.payerUserId !== payerUserId) {
       throw new Error("only the payer can submit piece receipts");
@@ -587,14 +738,26 @@ export class ProtocolService {
       return existingReceipt;
     }
 
-    const verification = await this.verifier.verifySignature({
-      walletAddress: receiptSignerWalletAddress,
-      message: receiptMessage,
-      signature: receiptSignature,
-    });
+    if (receiptSignedEvent) {
+      if (receiptSignedEvent.content !== receiptMessage) {
+        throw new Error("signed receipt event content does not match the receipt message");
+      }
 
-    if (!verification.valid) {
-      throw new Error("invalid piece receipt signature");
+      const verifiedPubkey = verifyNostrEvent(receiptSignedEvent);
+
+      if (!verifiedPubkey || verifiedPubkey.toLowerCase() !== receiptSignerWalletAddress.toLowerCase()) {
+        throw new Error("invalid piece receipt signature");
+      }
+    } else {
+      const verification = await this.verifier.verifySignature({
+        walletAddress: receiptSignerWalletAddress,
+        message: receiptMessage,
+        signature: receiptSignature,
+      });
+
+      if (!verification.valid) {
+        throw new Error("invalid piece receipt signature");
+      }
     }
 
     const receipt = {
@@ -602,7 +765,8 @@ export class ProtocolService {
       contractId,
       pieceIndex,
       receiptMessage,
-      receiptSignature,
+      receiptSignature: receiptSignature ?? null,
+      receiptSignedEvent,
       receiptSignerWalletAddress,
       createdAt: this.now(),
     };

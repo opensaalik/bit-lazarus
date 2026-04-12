@@ -7,9 +7,12 @@ import { startBountyEscrowSync } from "./bounty-escrow-sync.js";
 import { BountyService } from "./bounty-service.js";
 import { EscrowService } from "./escrow-service.js";
 import { createLightningClientFromEnv } from "./lightning-client.js";
+import { createPolarDemoServiceFromEnv } from "./polar-demo-service.js";
 import { ProtocolService } from "./protocol-service.js";
+import { parseTorrentMetadata } from "./torrent-piece-proof.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { WalletNode } from "./wallet-node.js";
+import { createWebTorrentTrackerServiceFromEnv } from "./webtorrent-tracker-service.js";
 
 function getBearerToken(request) {
   const authorization = request.headers.authorization;
@@ -52,6 +55,8 @@ export function createApp({
   authService,
   bountyService,
   protocolService,
+  polarDemoService = null,
+  webTorrentTrackerService = null,
   enableManualEscrowActions = false,
 }) {
   const app = express();
@@ -77,7 +82,19 @@ export function createApp({
   });
 
   app.get("/health", (_request, response) => {
-    response.json({ ok: true, nodeId: walletNode.nodeId });
+    response.json({
+      ok: true,
+      nodeId: walletNode.nodeId,
+      demoCapabilities: polarDemoService?.getCapabilities?.() ?? {
+        backendPayments: false,
+        backendPayoutInvoices: false,
+        backendReceiptSigning: false,
+      },
+      webTorrent: webTorrentTrackerService?.getPublicConfig?.() ?? {
+        enabled: false,
+        announceUrls: [],
+      },
+    });
   });
 
   app.post("/auth/challenges", async (request, response) => {
@@ -351,6 +368,40 @@ export function createApp({
     response.json({ bounty, escrow });
   });
 
+  app.post("/bounties/:bountyId/demo-fund", requireAuth, async (request, response) => {
+    if (!polarDemoService?.getCapabilities()?.backendPayments) {
+      response.status(503).json({ error: "Polar demo funding is not configured on this server" });
+      return;
+    }
+
+    const existingBounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!existingBounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    if (existingBounty.creatorUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the requester can fund this bounty" });
+      return;
+    }
+
+    if (!existingBounty.funding?.paymentRequest) {
+      response.status(409).json({ error: "this bounty has no funding invoice" });
+      return;
+    }
+
+    const payment = await polarDemoService.fundRequesterInvoice(existingBounty.funding.paymentRequest);
+    const escrow = await escrowService.syncEscrow(existingBounty.escrowId);
+    const bounty = await bountyService.syncBountyEscrow({
+      bountyId: existingBounty.id,
+      escrowId: escrow.id,
+      escrowStatus: escrow.status,
+      funding: escrow.funding,
+    });
+    response.json({ bounty, escrow, payment });
+  });
+
   app.get("/verification-sessions/:sessionId", requireAuth, (request, response) => {
     const verificationSession = protocolService.getVerificationSession(request.params.sessionId);
 
@@ -439,6 +490,7 @@ export function createApp({
       hunterWalletAddress: hunter.walletAddress,
       pieceIndexes: request.body?.pieceIndexes ?? verificationSession.verifiedPieceIndexes,
       rewardEscrowId: bounty.escrowId,
+      deliveryVerificationMode: bounty.deliveryVerificationMode ?? "torrent-hash",
     });
 
     const bondResult = await protocolService.createBondEscrows({
@@ -501,6 +553,44 @@ export function createApp({
     response.json({ contract: updatedContract });
   });
 
+  app.post("/contracts/:contractId/demo-payout-invoice", requireAuth, async (request, response) => {
+    if (!polarDemoService?.getCapabilities()?.backendPayoutInvoices) {
+      response.status(503).json({ error: "Polar demo payout invoices are not configured on this server" });
+      return;
+    }
+
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.hunterUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the hunter can register a payout invoice for this contract" });
+      return;
+    }
+
+    const bounty = bountyService.getBounty(contract.bountyId);
+    const invoice = await polarDemoService.createHunterPayoutInvoice({
+      amountSats: bounty.rewardSats,
+      memo: `Bit Lazarus hunter payout for ${contract.id}`,
+    });
+    const updatedContract = await protocolService.registerContractPayoutInvoice({
+      contractId: contract.id,
+      userId: request.auth.user.id,
+      paymentRequest: invoice.paymentRequest,
+    });
+
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+
+    response.json({ contract: updatedContract, invoice });
+  });
+
   app.post("/contracts/:contractId/bonds", requireAuth, async (request, response) => {
     const contract = protocolService.getDeliveryContract(request.params.contractId);
 
@@ -547,6 +637,107 @@ export function createApp({
     response.json({ contract: updatedContract });
   });
 
+  app.post("/contracts/:contractId/demo-pay-bond", requireAuth, async (request, response) => {
+    if (!polarDemoService?.getCapabilities()?.backendPayments) {
+      response.status(503).json({ error: "Polar demo bond payments are not configured on this server" });
+      return;
+    }
+
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+
+    const isPayer = contract.payerUserId === request.auth.user.id;
+    const bondEscrowId = isPayer ? contract.payerBondEscrowId : contract.hunterBondEscrowId;
+
+    if (!bondEscrowId) {
+      response.status(409).json({ error: "your bond escrow is not available" });
+      return;
+    }
+
+    const bondEscrow = escrowService.getEscrow(bondEscrowId);
+
+    if (!bondEscrow?.funding?.paymentRequest) {
+      response.status(409).json({ error: "your bond invoice is not available" });
+      return;
+    }
+
+    const payment = await polarDemoService.payBondInvoice({
+      role: isPayer ? "payer" : "hunter",
+      paymentRequest: bondEscrow.funding.paymentRequest,
+    });
+    const updatedContract = await protocolService.syncBondStatus({ contractId: contract.id });
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+    });
+    response.json({ contract: updatedContract, payment });
+  });
+
+  app.post("/contracts/:contractId/delivery-commitment", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.hunterUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the hunter can commit the seeded file hash" });
+      return;
+    }
+
+    const updatedContract = await protocolService.registerHunterDeliveryFile({
+      contractId: contract.id,
+      hunterUserId: request.auth.user.id,
+      fileSha256: request.body?.fileSha256,
+      fileName: request.body?.fileName,
+      fileSize: request.body?.fileSize,
+    });
+
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+
+    response.status(201).json({ contract: updatedContract });
+  });
+
+  app.post("/contracts/:contractId/delivery-confirmation", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the requester can confirm the delivered file hash" });
+      return;
+    }
+
+    const updatedContract = await protocolService.confirmRequesterDeliveryFile({
+      contractId: contract.id,
+      payerUserId: request.auth.user.id,
+      fileSha256: request.body?.fileSha256,
+    });
+
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+
+    response.status(201).json({ contract: updatedContract });
+  });
+
   app.get("/contracts/:contractId/receipts", requireAuth, (request, response) => {
     const contract = protocolService.getDeliveryContract(request.params.contractId);
 
@@ -584,6 +775,7 @@ export function createApp({
       pieceIndex: request.body?.pieceIndex,
       receiptMessage: request.body?.receiptMessage,
       receiptSignature: request.body?.receiptSignature,
+      receiptSignedEvent: request.body?.receiptSignedEvent,
     });
     const updatedContract = protocolService.getDeliveryContract(contract.id);
     await bountyService.updateProtocolState({
@@ -592,6 +784,65 @@ export function createApp({
       completionReadiness: updatedContract.resolutionReadiness,
     });
     response.status(201).json({ receipt, contract: updatedContract });
+  });
+
+  app.post("/contracts/:contractId/demo-submit-receipts", requireAuth, async (request, response) => {
+    if (!polarDemoService?.getCapabilities()?.backendReceiptSigning) {
+      response.status(503).json({ error: "Polar demo receipt signing is not configured on this server" });
+      return;
+    }
+
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the payer can submit receipts" });
+      return;
+    }
+
+    const bounty = bountyService.getBounty(contract.bountyId);
+    const torrentBuffer = await bountyService.getTorrentFile(bounty.torrentInfoHash);
+
+    if (!torrentBuffer) {
+      response.status(409).json({ error: "torrent file is required to build receipt messages in demo mode" });
+      return;
+    }
+
+    const torrentMetadata = parseTorrentMetadata(torrentBuffer);
+    const existingReceipts = protocolService.listPieceReceipts({ contractId: contract.id });
+    const submittedPieceIndexes = new Set(existingReceipts.map((receipt) => receipt.pieceIndex));
+    const outstandingPieceIndexes = contract.pieceIndexes.filter((pieceIndex) => !submittedPieceIndexes.has(pieceIndex));
+    const createdReceipts = [];
+
+    for (const pieceIndex of outstandingPieceIndexes) {
+      const pieceHash = torrentMetadata.pieces[pieceIndex];
+      const receiptMessage = `deliveryContractId=${contract.id}|pieceIndex=${pieceIndex}|pieceHash=${pieceHash}`;
+      const receiptSignature = await polarDemoService.signRequesterReceipt({
+        walletAddress: contract.payerWalletAddress,
+        message: receiptMessage,
+      });
+      const receipt = await protocolService.submitPieceReceipt({
+        contractId: contract.id,
+        payerUserId: request.auth.user.id,
+        receiptSignerWalletAddress: contract.payerWalletAddress,
+        pieceIndex,
+        receiptMessage,
+        receiptSignature,
+      });
+      createdReceipts.push(receipt);
+    }
+
+    const updatedContract = protocolService.getDeliveryContract(contract.id);
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+    response.status(201).json({ receipts: createdReceipts, contract: updatedContract });
   });
 
   app.get("/escrows", requireAuth, (request, response) => {
@@ -740,6 +991,12 @@ export async function startServer({
     escrowService,
   });
   await protocolService.init();
+  const polarDemoService = createPolarDemoServiceFromEnv(process.env);
+  const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env);
+
+  if (webTorrentTrackerService) {
+    await webTorrentTrackerService.start();
+  }
 
   const app = createApp({
     walletNode,
@@ -747,6 +1004,8 @@ export async function startServer({
     authService,
     bountyService,
     protocolService,
+    polarDemoService,
+    webTorrentTrackerService,
     enableManualEscrowActions,
   });
 
@@ -770,6 +1029,9 @@ export async function startServer({
   server.on("close", () => {
     bountyEscrowSync.stop();
     clearInterval(protocolSweepTimer);
+    if (webTorrentTrackerService) {
+      void webTorrentTrackerService.stop();
+    }
   });
 
   return {
@@ -781,6 +1043,7 @@ export async function startServer({
     bountyService,
     protocolService,
     bountyEscrowSync,
+    webTorrentTrackerService,
     port,
     host,
   };
@@ -788,7 +1051,7 @@ export async function startServer({
 
 import { pathToFileURL } from "node:url";
 
-if (import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const { port, host } = await startServer();
   console.log(`Bit Lazarus node listening on http://${host}:${port}`);
 }

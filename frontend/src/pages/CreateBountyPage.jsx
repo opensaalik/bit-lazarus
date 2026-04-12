@@ -167,7 +167,7 @@ export default function CreateBountyPage() {
             <span>Collateral bond</span>
             <input
               readOnly
-              value={`${Math.max(1, Math.ceil(Number.parseInt(rewardSats || "0", 10) * 0.1))} sats (10%)`}
+              value={`${Math.max(1, Math.ceil(Number.parseInt(rewardSats || "0", 10) * 0.3))} sats (30%)`}
               className="muted-input"
             />
           </label>

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { schnorr } from "@noble/curves/secp256k1.js";
 import { ProtocolService } from "../src/protocol-service.js";
 import { EscrowService } from "../src/escrow-service.js";
 import { MockLightningClient } from "../src/lightning-client.js";
@@ -34,6 +36,16 @@ async function setupProtocolWithEscrow(tempDir) {
   await protocolService.init();
 
   return { lightningClient, escrowService, protocolService };
+}
+
+function createSignedNostrEvent(privKey, { kind = 27235, tags = [], content }) {
+  const pubkey = Buffer.from(schnorr.getPublicKey(privKey)).toString("hex");
+  const created_at = Math.floor(Date.now() / 1000);
+  const serialized = JSON.stringify([0, pubkey, created_at, kind, tags, content]);
+  const id = crypto.createHash("sha256").update(serialized).digest("hex");
+  const sig = Buffer.from(schnorr.sign(Buffer.from(id, "hex"), privKey)).toString("hex");
+
+  return { id, pubkey, created_at, kind, tags, content, sig };
 }
 
 test("protocol service creates and verifies proof sessions", async () => {
@@ -207,6 +219,260 @@ test("protocol service validates payer-signed piece receipts and marks contracts
     assert.equal(receipt.pieceIndex, 4);
     assert.equal(updatedContract.state, "RESOLVED_SUCCESS");
     assert.equal(updatedContract.resolutionReadiness, "RESOLVED");
+  });
+});
+
+test("protocol service accepts nostr-signed piece receipts", async () => {
+  await withTempDir(async (tempDir) => {
+    const { lightningClient, escrowService, protocolService } = await setupProtocolWithEscrow(tempDir);
+    const payerPrivKey = schnorr.utils.randomSecretKey();
+    const payerPubkey = Buffer.from(schnorr.getPublicKey(payerPrivKey)).toString("hex");
+
+    const rewardEscrow = await escrowService.createEscrow({
+      escrowId: "reward-4",
+      buyerId: "payer-4",
+      sellerId: "bounty:bounty-4",
+      amountSats: 25_000,
+    });
+
+    await protocolService.createVerificationSession({
+      verificationSessionId: "session-4",
+      bountyId: "bounty-4",
+      payerUserId: "payer-4",
+      hunterUserId: "hunter-4",
+      pieceIndexes: [9],
+      torrentInfoHash: "00112233445566778899aabbccddeeff00112233",
+    });
+    await protocolService.submitProofArtifacts({
+      sessionId: "session-4",
+      hunterUserId: "hunter-4",
+      proofArtifacts: {
+        proofs: [{ pieceIndex: 9, round70State: "proof" }],
+      },
+    });
+    await protocolService.markProofVerified({
+      sessionId: "session-4",
+      payerUserId: "payer-4",
+      verifiedPieceIndexes: [9],
+    });
+    const contract = await protocolService.createDeliveryContract({
+      contractId: "contract-4",
+      sessionId: "session-4",
+      bountyId: "bounty-4",
+      payerUserId: "payer-4",
+      hunterUserId: "hunter-4",
+      payerWalletAddress: payerPubkey,
+      hunterWalletAddress: "02hunterwallet",
+      pieceIndexes: [9],
+      rewardEscrowId: rewardEscrow.id,
+    });
+
+    const { payerBondEscrow, hunterBondEscrow } = await protocolService.createBondEscrows({
+      contractId: contract.id,
+      bondAmountSats: 2500,
+    });
+
+    const hunterPayoutInvoice = await lightningClient.createInvoice({
+      amountSats: 25_000,
+      memo: "hunter payout nostr",
+    });
+    await protocolService.registerContractPayoutInvoice({
+      contractId: contract.id,
+      userId: "hunter-4",
+      paymentRequest: hunterPayoutInvoice.paymentRequest,
+    });
+
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: rewardEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: payerBondEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: hunterBondEscrow.funding.paymentHashHex });
+    await protocolService.syncBondStatus({ contractId: contract.id });
+
+    const receiptMessage = "deliveryContractId=contract-4|pieceIndex=9|pieceHash=nostr";
+    const receiptSignedEvent = createSignedNostrEvent(payerPrivKey, {
+      content: receiptMessage,
+      tags: [
+        ["bit-lazarus", "piece-receipt"],
+        ["contract", contract.id],
+        ["piece", "9"],
+      ],
+    });
+
+    const receipt = await protocolService.submitPieceReceipt({
+      contractId: contract.id,
+      payerUserId: "payer-4",
+      receiptSignerWalletAddress: payerPubkey,
+      pieceIndex: 9,
+      receiptMessage,
+      receiptSignedEvent,
+    });
+
+    const updatedContract = protocolService.getDeliveryContract(contract.id);
+
+    assert.equal(receipt.receiptSignature, null);
+    assert.deepEqual(receipt.receiptSignedEvent, receiptSignedEvent);
+    assert.equal(updatedContract.state, "RESOLVED_SUCCESS");
+  });
+});
+
+test("torrent-hash delivery contracts resolve successfully when requester and hunter hashes match", async () => {
+  await withTempDir(async (tempDir) => {
+    const { lightningClient, escrowService, protocolService } = await setupProtocolWithEscrow(tempDir);
+
+    const rewardEscrow = await escrowService.createEscrow({
+      escrowId: "reward-5",
+      buyerId: "payer-5",
+      sellerId: "bounty:bounty-5",
+      amountSats: 25_000,
+    });
+
+    await protocolService.createVerificationSession({
+      verificationSessionId: "session-5",
+      bountyId: "bounty-5",
+      payerUserId: "payer-5",
+      hunterUserId: "hunter-5",
+      pieceIndexes: [3],
+      torrentInfoHash: "11223344556677889900aabbccddeeff00112233",
+    });
+    await protocolService.submitProofArtifacts({
+      sessionId: "session-5",
+      hunterUserId: "hunter-5",
+      proofArtifacts: {
+        proofs: [{ pieceIndex: 3, round70State: "proof" }],
+      },
+    });
+    await protocolService.markProofVerified({
+      sessionId: "session-5",
+      payerUserId: "payer-5",
+      verifiedPieceIndexes: [3],
+    });
+
+    const contract = await protocolService.createDeliveryContract({
+      contractId: "contract-5",
+      sessionId: "session-5",
+      bountyId: "bounty-5",
+      payerUserId: "payer-5",
+      hunterUserId: "hunter-5",
+      payerWalletAddress: "tb1qpayer5",
+      hunterWalletAddress: "tb1qhunter5",
+      pieceIndexes: [3],
+      rewardEscrowId: rewardEscrow.id,
+      deliveryVerificationMode: "torrent-hash",
+    });
+
+    const { payerBondEscrow, hunterBondEscrow } = await protocolService.createBondEscrows({
+      contractId: contract.id,
+      bondAmountSats: 2500,
+    });
+
+    const hunterPayoutInvoice = await lightningClient.createInvoice({
+      amountSats: 25_000,
+      memo: "hunter payout hash mode",
+    });
+    await protocolService.registerContractPayoutInvoice({
+      contractId: contract.id,
+      userId: "hunter-5",
+      paymentRequest: hunterPayoutInvoice.paymentRequest,
+    });
+
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: rewardEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: payerBondEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: hunterBondEscrow.funding.paymentHashHex });
+    await protocolService.syncBondStatus({ contractId: contract.id });
+
+    await protocolService.registerHunterDeliveryFile({
+      contractId: contract.id,
+      hunterUserId: "hunter-5",
+      fileSha256: "a".repeat(64),
+      fileName: "fixture-a.bin",
+      fileSize: 1024,
+    });
+
+    const updatedContract = await protocolService.confirmRequesterDeliveryFile({
+      contractId: contract.id,
+      payerUserId: "payer-5",
+      fileSha256: "a".repeat(64),
+    });
+
+    assert.equal(updatedContract.deliveryVerificationMode, "torrent-hash");
+    assert.equal(updatedContract.deliveryHashStatus, "MATCHED");
+    assert.equal(updatedContract.state, "RESOLVED_SUCCESS");
+    assert.equal(updatedContract.resolutionReadiness, "RESOLVED");
+  });
+});
+
+test("torrent-hash delivery contracts keep the contract open on hash mismatch", async () => {
+  await withTempDir(async (tempDir) => {
+    const { lightningClient, escrowService, protocolService } = await setupProtocolWithEscrow(tempDir);
+
+    const rewardEscrow = await escrowService.createEscrow({
+      escrowId: "reward-6",
+      buyerId: "payer-6",
+      sellerId: "bounty:bounty-6",
+      amountSats: 25_000,
+    });
+
+    await protocolService.createVerificationSession({
+      verificationSessionId: "session-6",
+      bountyId: "bounty-6",
+      payerUserId: "payer-6",
+      hunterUserId: "hunter-6",
+      pieceIndexes: [1],
+      torrentInfoHash: "99887766554433221100ffeeddccbbaa00112233",
+    });
+    await protocolService.submitProofArtifacts({
+      sessionId: "session-6",
+      hunterUserId: "hunter-6",
+      proofArtifacts: {
+        proofs: [{ pieceIndex: 1, round70State: "proof" }],
+      },
+    });
+    await protocolService.markProofVerified({
+      sessionId: "session-6",
+      payerUserId: "payer-6",
+      verifiedPieceIndexes: [1],
+    });
+
+    const contract = await protocolService.createDeliveryContract({
+      contractId: "contract-6",
+      sessionId: "session-6",
+      bountyId: "bounty-6",
+      payerUserId: "payer-6",
+      hunterUserId: "hunter-6",
+      payerWalletAddress: "tb1qpayer6",
+      hunterWalletAddress: "tb1qhunter6",
+      pieceIndexes: [1],
+      rewardEscrowId: rewardEscrow.id,
+      deliveryVerificationMode: "torrent-hash",
+    });
+
+    const { payerBondEscrow, hunterBondEscrow } = await protocolService.createBondEscrows({
+      contractId: contract.id,
+      bondAmountSats: 2500,
+    });
+
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: rewardEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: payerBondEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: hunterBondEscrow.funding.paymentHashHex });
+    await protocolService.syncBondStatus({ contractId: contract.id });
+
+    await protocolService.registerHunterDeliveryFile({
+      contractId: contract.id,
+      hunterUserId: "hunter-6",
+      fileSha256: "b".repeat(64),
+      fileName: "fixture-a.bin",
+      fileSize: 1024,
+    });
+
+    const updatedContract = await protocolService.confirmRequesterDeliveryFile({
+      contractId: contract.id,
+      payerUserId: "payer-6",
+      fileSha256: "c".repeat(64),
+    });
+
+    assert.equal(updatedContract.state, "DELIVERY_IN_PROGRESS");
+    assert.equal(updatedContract.deliveryHashStatus, "MISMATCHED");
+    assert.equal(updatedContract.resolutionReadiness, "PENDING_HASH_MISMATCH");
+    assert.equal(updatedContract.requesterDeliveryFileSha256, "c".repeat(64));
   });
 });
 

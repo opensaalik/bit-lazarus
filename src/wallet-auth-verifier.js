@@ -131,11 +131,19 @@ export class BitcoinCliWalletAuthVerifier {
     bitcoinCliPath = process.env.BITCOIN_CLI_PATH ?? "bitcoin-cli",
     datadir = process.env.BITCOIN_CLI_DATADIR ?? null,
     chain = process.env.BITCOIN_CLI_CHAIN ?? "testnet4",
+    rpcConnect = process.env.BITCOIN_CLI_RPCCONNECT ?? null,
+    rpcPort = process.env.BITCOIN_CLI_RPCPORT ?? null,
+    rpcUser = process.env.BITCOIN_CLI_RPCUSER ?? null,
+    rpcPassword = process.env.BITCOIN_CLI_RPCPASSWORD ?? null,
     execFileImpl = execFileAsync,
   } = {}) {
     this.bitcoinCliPath = bitcoinCliPath;
     this.datadir = datadir;
     this.chain = chain;
+    this.rpcConnect = rpcConnect;
+    this.rpcPort = rpcPort;
+    this.rpcUser = rpcUser;
+    this.rpcPassword = rpcPassword;
     this.execFileImpl = execFileImpl;
   }
 
@@ -165,6 +173,22 @@ export class BitcoinCliWalletAuthVerifier {
 
     if (this.chain) {
       args.push(`-${this.chain}`);
+    }
+
+    if (this.rpcConnect) {
+      args.push(`-rpcconnect=${this.rpcConnect}`);
+    }
+
+    if (this.rpcPort) {
+      args.push(`-rpcport=${this.rpcPort}`);
+    }
+
+    if (this.rpcUser) {
+      args.push(`-rpcuser=${this.rpcUser}`);
+    }
+
+    if (this.rpcPassword) {
+      args.push(`-rpcpassword=${this.rpcPassword}`);
     }
 
     args.push("verifymessage", walletAddress, signature, message);
@@ -232,6 +256,10 @@ export function createWalletAuthVerifierFromEnv(environment = process.env) {
       bitcoinCliPath: environment.BITCOIN_CLI_PATH,
       datadir: environment.BITCOIN_CLI_DATADIR,
       chain: environment.BITCOIN_CLI_CHAIN,
+      rpcConnect: environment.BITCOIN_CLI_RPCCONNECT,
+      rpcPort: environment.BITCOIN_CLI_RPCPORT,
+      rpcUser: environment.BITCOIN_CLI_RPCUSER,
+      rpcPassword: environment.BITCOIN_CLI_RPCPASSWORD,
     });
   }
 
@@ -245,6 +273,10 @@ export function createWalletAuthVerifierFromEnv(environment = process.env) {
         bitcoinCliPath: environment.BITCOIN_CLI_PATH,
         datadir: environment.BITCOIN_CLI_DATADIR,
         chain: environment.BITCOIN_CLI_CHAIN,
+        rpcConnect: environment.BITCOIN_CLI_RPCCONNECT,
+        rpcPort: environment.BITCOIN_CLI_RPCPORT,
+        rpcUser: environment.BITCOIN_CLI_RPCUSER,
+        rpcPassword: environment.BITCOIN_CLI_RPCPASSWORD,
       }),
     });
   }

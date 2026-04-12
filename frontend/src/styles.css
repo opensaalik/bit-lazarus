@@ -836,6 +836,38 @@ a.secondary-button {
   white-space: nowrap;
 }
 
+.protocol-subsection {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.protocol-detail-grid {
+  margin: 0;
+}
+
+.piece-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.piece-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #f5eee2;
+}
+
+.piece-option input {
+  margin: 0;
+}
+
 @media (max-width: 1120px) {
   .hero-grid,
   .dashboard-grid,

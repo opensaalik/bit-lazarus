@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext.jsx";
 
-export default function BountyCard({ bounty, compact = false }) {
+export default function BountyCard({ bounty, compact = false, hideActions = false }) {
   const {
     currentUser,
     token,
@@ -10,6 +10,7 @@ export default function BountyCard({ bounty, compact = false }) {
     handleSyncBounty,
     handleHuntBounty,
     hasWebLn,
+    health,
     formatBytes,
   } = useApp();
 
@@ -75,7 +76,7 @@ export default function BountyCard({ bounty, compact = false }) {
             View bounty
           </Link>
         </div>
-      ) : (
+      ) : hideActions ? null : (
         <div className="button-row">
           {bounty.escrowStatus === "AWAITING_FUNDING" && isCreator ? (
             <button
@@ -84,7 +85,11 @@ export default function BountyCard({ bounty, compact = false }) {
               onClick={() => handleFundEscrow(bounty)}
               type="button"
             >
-              {hasWebLn ? "Fund escrow via Alby" : "Copy invoice"}
+              {hasWebLn
+                ? "Fund escrow via Alby"
+                : health?.demoCapabilities?.backendPayments
+                  ? "Fund escrow from Polar"
+                  : "Copy invoice"}
             </button>
           ) : null}
           {bounty.hasTorrentFile ? (

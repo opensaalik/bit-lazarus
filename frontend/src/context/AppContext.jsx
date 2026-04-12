@@ -9,6 +9,8 @@ import {
 } from "react";
 import { parseTorrentFile, parseMagnetUri, torrentToBase64, formatBytes } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
+import { sendPaymentWithWebLn, signMessageWithWebLn } from "../lib/webln.js";
+import { getNostrPublicKey, signNostrEvent } from "../lib/nostr.js";
 
 const AppContext = createContext(null);
 
@@ -162,6 +164,39 @@ export function AppProvider({ children }) {
     }
   }
 
+  async function handleWebLnConnect() {
+    setLoading(true);
+
+    try {
+      const challengePayload = await requestJson("/auth/challenges", {
+        method: "POST",
+        body: { kind: "webln" },
+      });
+      const challengeRecord = challengePayload.challenge;
+      const signedMessage = await signMessageWithWebLn(challengeRecord.message);
+      const verifyPayload = await requestJson("/auth/verify", {
+        method: "POST",
+        body: {
+          challengeId: challengeRecord.id,
+          signature: signedMessage,
+          displayName: displayName.trim() || null,
+        },
+      });
+
+      setToken(verifyPayload.session.token);
+      setChallenge(null);
+      setSignature("");
+      setWalletAddress(verifyPayload.user.walletAddress);
+      setStatusMessage(
+        `Connected via WebLN as ${verifyPayload.user.displayName ?? `${verifyPayload.user.walletAddress.slice(0, 12)}...`}`,
+      );
+    } catch (error) {
+      setStatusMessage(error.message ?? String(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const handleTorrentFile = useCallback(async (file) => {
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -250,9 +285,8 @@ export function AppProvider({ children }) {
 
       if (bounty.funding?.paymentRequest && window.webln) {
         try {
-          await window.webln.enable();
-          await window.webln.sendPayment(bounty.funding.paymentRequest);
-          setStatusMessage("Payment sent! Syncing escrow...");
+          const payment = await sendPaymentWithWebLn(bounty.funding.paymentRequest, { timeoutMs: 5000 });
+          setStatusMessage(payment.timedOut ? "Funding request sent. Syncing escrow state..." : "Payment sent! Syncing escrow...");
           const syncPayload = await requestJson(`/bounties/${bounty.id}/sync-escrow`, {
             method: "POST",
             token,
@@ -261,6 +295,17 @@ export function AppProvider({ children }) {
           setStatusMessage(`Bounty "${bounty.title}" is live!`);
         } catch (payError) {
           setStatusMessage(`Bounty created but funding skipped: ${payError.message}. You can fund it later.`);
+        }
+      } else if (bounty.funding?.paymentRequest && health?.demoCapabilities?.backendPayments) {
+        try {
+          const demoPayload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
+            method: "POST",
+            token,
+          });
+          setBounties((cur) => cur.map((b) => (b.id === bounty.id ? demoPayload.bounty : b)));
+          setStatusMessage(`Bounty "${bounty.title}" is live via Polar demo funding.`);
+        } catch (payError) {
+          setStatusMessage(`Bounty created but demo funding failed: ${payError.message}. You can fund it later.`);
         }
       } else {
         setStatusMessage(`Bounty created with escrow ${bounty.escrowId}. Fund it to go live.`);
@@ -338,13 +383,7 @@ export function AppProvider({ children }) {
     setLoading(true);
 
     try {
-      if (!window.nostr) {
-        throw new Error(
-          "Nostr extension not found. Install Alby (getalby.com) and reload the page.",
-        );
-      }
-
-      const pubkey = await window.nostr.getPublicKey();
+      const pubkey = await getNostrPublicKey();
 
       const challengePayload = await requestJson("/auth/challenges", {
         method: "POST",
@@ -359,7 +398,7 @@ export function AppProvider({ children }) {
         content: ch.message,
       };
 
-      const signedEvent = await window.nostr.signEvent(eventTemplate);
+      const signedEvent = await signNostrEvent(eventTemplate);
 
       const verifyPayload = await requestJson("/auth/verify", {
         method: "POST",
@@ -375,7 +414,7 @@ export function AppProvider({ children }) {
       setSignature("");
       setWalletAddress(pubkey);
       setStatusMessage(
-        `Connected via Alby as ${verifyPayload.user.displayName ?? `${pubkey.slice(0, 12)}...`}`,
+        `Connected via Nostr as ${verifyPayload.user.displayName ?? `${pubkey.slice(0, 12)}...`}`,
       );
     } catch (error) {
       setStatusMessage(error.message ?? String(error));
@@ -394,9 +433,19 @@ export function AppProvider({ children }) {
 
     try {
       if (window.webln) {
-        await window.webln.enable();
-        await window.webln.sendPayment(bounty.funding.paymentRequest);
-        setStatusMessage("Payment sent! Syncing escrow state...");
+        const payment = await sendPaymentWithWebLn(bounty.funding.paymentRequest, { timeoutMs: 5000 });
+        setStatusMessage(payment.timedOut ? "Funding request sent. Syncing escrow state..." : "Payment sent! Syncing escrow state...");
+      } else if (health?.demoCapabilities?.backendPayments) {
+        const payload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
+          method: "POST",
+          token,
+        });
+        setBounties((currentBounties) =>
+          currentBounties.map((b) => (b.id === bounty.id ? payload.bounty : b)),
+        );
+        setStatusMessage(`Escrow funded for bounty "${bounty.title}" via Polar demo.`);
+        setLoading(false);
+        return;
       } else {
         await navigator.clipboard.writeText(bounty.funding.paymentRequest);
         setStatusMessage("Invoice copied to clipboard. Pay it with any Lightning wallet, then sync.");
@@ -489,6 +538,7 @@ export function AppProvider({ children }) {
     refreshBounties,
     handleChallengeRequest,
     handleVerify,
+    handleWebLnConnect,
     handleTorrentFile,
     handleDrop,
     handleFileSelect,

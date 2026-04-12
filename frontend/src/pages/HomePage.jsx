@@ -21,6 +21,7 @@ export default function HomePage() {
     setShowManualLogin,
     handleChallengeRequest,
     handleVerify,
+    handleWebLnConnect,
     handleAlbyConnect,
     openBounties,
     awaitingFunding,
@@ -85,11 +86,19 @@ export default function HomePage() {
                   </label>
                   <button
                     className="primary-button"
-                    disabled={loading}
+                    disabled={loading || !hasWebLn}
+                    onClick={handleWebLnConnect}
+                    type="button"
+                  >
+                    {hasWebLn ? "Connect with WebLN" : "WebLN not detected"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={loading || !hasNostr}
                     onClick={handleAlbyConnect}
                     type="button"
                   >
-                    Connect with Alby
+                    {hasNostr ? "Connect with Nostr / Alby" : "Nostr wallet not detected"}
                   </button>
                   <button
                     className="secondary-button"
@@ -188,6 +197,11 @@ export default function HomePage() {
               {hasWebLn && hasNostr ? " · " : null}
               {hasNostr ? <span>Nostr detected</span> : null}
             </div>
+            {!token && hasWebLn && hasNostr ? (
+              <p className="muted-copy home-disconnect-hint">
+                If your Alby account does not support WebLN message signing, use Nostr / Alby for identity and WebLN for payments.
+              </p>
+            ) : null}
             {token ? (
               <p className="muted-copy home-disconnect-hint">Use Disconnect in the top bar to sign out.</p>
             ) : null}

@@ -95,7 +95,7 @@ export class BountyService {
   constructor({
     dataDir = path.resolve("data", "bounties"),
     now = () => new Date().toISOString(),
-    bondPercentage = 10,
+    bondPercentage = 30,
   } = {}) {
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "bounties.json");
@@ -182,6 +182,7 @@ export class BountyService {
     pieceLength = null,
     totalSize = null,
     files = null,
+    deliveryVerificationMode = "torrent-hash",
   }) {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
@@ -215,6 +216,7 @@ export class BountyService {
       tags: normalizeTags(tags),
       status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
       verificationMode: "manual",
+      deliveryVerificationMode,
       deliveryStatus: "IDLE",
       completionReadiness: "PENDING",
       createdAt: timestamp,

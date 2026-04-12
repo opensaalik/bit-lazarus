@@ -16,8 +16,14 @@ function normalizeBaseUrl(rawUrl) {
   return url.toString().replace(/\/$/, "");
 }
 
-async function requestJson(urlString, { method = "GET", headers = {}, body, rejectUnauthorized = true } = {}) {
+async function requestJson(urlString, { method = "GET", headers = {}, body, rejectUnauthorized = true, timeoutMs = 0 } = {}) {
   const previousTlsMode = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  const controller = timeoutMs > 0 ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+      controller.abort();
+    }, timeoutMs)
+    : null;
 
   if (!rejectUnauthorized) {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -30,8 +36,21 @@ async function requestJson(urlString, { method = "GET", headers = {}, body, reje
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      signal: controller?.signal,
     });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("lightning request timed out");
+      timeoutError.code = "LIGHTNING_TIMEOUT";
+      throw timeoutError;
+    }
+
+    throw error;
   } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
     if (!rejectUnauthorized) {
       if (previousTlsMode === undefined) {
         delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
@@ -241,6 +260,29 @@ export class LndRestLightningClient {
     };
   }
 
+  async createInvoice({ amountSats, memo, expirySeconds = 3600 } = {}) {
+    assertAmount(amountSats);
+
+    const result = await this.request("/v1/invoices", {
+      method: "POST",
+      body: {
+        memo,
+        value: String(amountSats),
+        expiry: String(expirySeconds),
+      },
+    });
+
+    return {
+      paymentHashHex: result.r_hash ? decodeHexFromBase64(result.r_hash) : null,
+      paymentPreimageHex: null,
+      paymentRequest: result.payment_request,
+      paymentAddr: null,
+      addIndex: result.add_index,
+      state: "OPEN",
+      amountSats,
+    };
+  }
+
   async lookupInvoice({ paymentHashHex }) {
     const query = new URLSearchParams({
       payment_hash: encodeBase64FromHex(paymentHashHex),
@@ -279,15 +321,32 @@ export class LndRestLightningClient {
     return { state: result.state ?? "SETTLED" };
   }
 
-  async payInvoice({ paymentRequest } = {}) {
+  async payInvoice({ paymentRequest, timeoutMs = 0, allowTimeout = false } = {}) {
     assertString(paymentRequest, "paymentRequest");
 
-    const result = await this.request("/v1/channels/transactions", {
-      method: "POST",
-      body: {
-        payment_request: paymentRequest,
-      },
-    });
+    let result;
+
+    try {
+      result = await this.request("/v1/channels/transactions", {
+        method: "POST",
+        body: {
+          payment_request: paymentRequest,
+        },
+        timeoutMs,
+      });
+    } catch (error) {
+      if (allowTimeout && error?.code === "LIGHTNING_TIMEOUT") {
+        return {
+          paymentHashHex: null,
+          paymentPreimageHex: null,
+          paymentRequest,
+          status: "PENDING",
+          timedOut: true,
+        };
+      }
+
+      throw error;
+    }
 
     if (result.payment_error) {
       throw new Error(result.payment_error);
@@ -298,6 +357,7 @@ export class LndRestLightningClient {
       paymentPreimageHex: result.payment_preimage ? decodeHexFromBase64(result.payment_preimage) : null,
       paymentRequest,
       status: "SUCCEEDED",
+      timedOut: false,
     };
   }
 

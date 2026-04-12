@@ -166,6 +166,46 @@ test("bitcoin-cli verifier delegates to verifymessage on testnet4", async () => 
   ]);
 });
 
+test("bitcoin-cli verifier forwards explicit rpc connection settings", async () => {
+  const calls = [];
+  const verifier = new BitcoinCliWalletAuthVerifier({
+    bitcoinCliPath: "/usr/bin/bitcoin-cli",
+    chain: "regtest",
+    rpcConnect: "127.0.0.1",
+    rpcPort: "18443",
+    rpcUser: "polaruser",
+    rpcPassword: "polarpass",
+    execFileImpl: async (file, args) => {
+      calls.push({ file, args });
+      return { stdout: "true\n", stderr: "" };
+    },
+  });
+
+  const result = await verifier.verifySignature({
+    walletAddress: "mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP",
+    message: "Bit Lazarus wallet login\nNonce: abc",
+    signature: "signature-value",
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(calls, [
+    {
+      file: "/usr/bin/bitcoin-cli",
+      args: [
+        "-regtest",
+        "-rpcconnect=127.0.0.1",
+        "-rpcport=18443",
+        "-rpcuser=polaruser",
+        "-rpcpassword=polarpass",
+        "verifymessage",
+        "mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP",
+        "signature-value",
+        "Bit Lazarus wallet login\nNonce: abc",
+      ],
+    },
+  ]);
+});
+
 test("bitcoin verifier accepts modern BIP-322 signatures for bech32 wallets", async () => {
   const verifier = new BitcoinCliWalletAuthVerifier({
     execFileImpl: async () => {

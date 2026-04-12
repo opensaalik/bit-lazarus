@@ -40,6 +40,7 @@ test("bounty service saves torrent bounties", async () => {
     assert.deepEqual(bounty.missingPieces, [12, 15, 18]);
     assert.deepEqual(bounty.tags, ["linux", "archive"]);
     assert.equal(bounty.escrowId, "escrow-bounty-1");
+    assert.equal(bounty.bondAmountSats, 7500);
   });
 });
 

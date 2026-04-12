@@ -30,6 +30,45 @@ function readTorrentInfo(decoded) {
   return info;
 }
 
+function cloneInfoValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneInfoValue(item));
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneInfoValue(item)]));
+  }
+
+  return value;
+}
+
+function extractInfoOverrides(info) {
+  const standardKeys = new Set([
+    "name",
+    "name.utf-8",
+    "piece length",
+    "pieces",
+    "length",
+    "files",
+  ]);
+
+  const overrides = {};
+
+  for (const [key, value] of Object.entries(info)) {
+    if (standardKeys.has(key)) {
+      continue;
+    }
+
+    overrides[key] = cloneInfoValue(value);
+  }
+
+  return overrides;
+}
+
 export async function parseTorrentMetadata(torrentBytes) {
   if (!(torrentBytes instanceof Uint8Array)) {
     throw new Error("torrentBytes is required");
@@ -47,6 +86,8 @@ export async function parseTorrentMetadata(torrentBytes) {
     totalLength: Number(info.length),
     pieceCount: Math.floor(info.pieces.length / 20),
     pieces: splitPieceHashes(info.pieces),
+    isPrivate: Boolean(info.private),
+    infoOverrides: extractInfoOverrides(info),
   };
 }
 
