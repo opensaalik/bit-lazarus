@@ -118,6 +118,22 @@ function getTrackerAnnounceUrls(health) {
   return [...new Set(announceUrls.filter((value) => typeof value === "string" && value.trim()))];
 }
 
+function getExpectedTorrentPayloadSize(torrentMetadata) {
+  if (!torrentMetadata) {
+    return null;
+  }
+
+  if (Array.isArray(torrentMetadata.files) && torrentMetadata.files.length === 1) {
+    return Number(torrentMetadata.files[0]?.length ?? 0);
+  }
+
+  if (Number.isFinite(torrentMetadata.totalSize)) {
+    return Number(torrentMetadata.totalSize);
+  }
+
+  return null;
+}
+
 async function safelyRemoveTorrent(torrent) {
   if (!torrent) {
     return;
@@ -162,6 +178,7 @@ export default function BountyDetailPage() {
     expectedSha256: null,
     fileSha256: null,
   });
+  const [downloadedFileBlob, setDownloadedFileBlob] = useState(null);
   const [downloadedFileUrl, setDownloadedFileUrl] = useState(null);
   const [downloadedFileName, setDownloadedFileName] = useState("");
   const hunterSeedTorrentRef = useRef(null);
@@ -364,6 +381,7 @@ export default function BountyDetailPage() {
       fileSha256: null,
     });
     setDownloadedFileName("");
+    setDownloadedFileBlob(null);
     setDownloadedFileUrl((current) => {
       if (current) {
         URL.revokeObjectURL(current);
@@ -564,8 +582,20 @@ export default function BountyDetailPage() {
         throw new Error("This torrent does not include enough metadata to reproduce the original swarm.");
       }
 
-      if (loadedTorrentMetadata.totalLength !== contentBytes.byteLength) {
-        throw new Error("The selected file size does not match the expected torrent payload size.");
+      if (Array.isArray(loadedTorrentMetadata.files) && loadedTorrentMetadata.files.length > 1) {
+        throw new Error("This demo only supports single-file torrents for browser seeding.");
+      }
+
+      const expectedPayloadSize = getExpectedTorrentPayloadSize(loadedTorrentMetadata);
+
+      if (!Number.isFinite(expectedPayloadSize) || expectedPayloadSize <= 0) {
+        throw new Error("Could not determine the expected payload size from the torrent metadata.");
+      }
+
+      if (expectedPayloadSize !== contentBytes.byteLength) {
+        throw new Error(
+          `The selected file size (${contentBytes.byteLength} bytes) does not match the expected torrent payload size (${expectedPayloadSize} bytes).`,
+        );
       }
 
       const fileSha256 = await computeSha256Hex(contentBytes);
@@ -686,6 +716,7 @@ export default function BountyDetailPage() {
         fileSha256: null,
       });
       setDownloadedFileName("");
+      setDownloadedFileBlob(null);
       setDownloadedFileUrl((current) => {
         if (current) {
           URL.revokeObjectURL(current);
@@ -736,6 +767,7 @@ export default function BountyDetailPage() {
           const nextDownloadUrl = URL.createObjectURL(fileBlob);
           const nextDownloadName = activeContract.hunterDeliveryFileName || primaryFile.name || loadedTorrentMetadata.name;
 
+          setDownloadedFileBlob(fileBlob);
           setDownloadedFileUrl((current) => {
             if (current) {
               URL.revokeObjectURL(current);
@@ -749,7 +781,7 @@ export default function BountyDetailPage() {
             ...current,
             phase: "confirming",
             progress: 1,
-            downloadedBytes: loadedTorrentMetadata.totalLength ?? current.downloadedBytes,
+            downloadedBytes: getExpectedTorrentPayloadSize(loadedTorrentMetadata) ?? current.downloadedBytes,
             fileSha256,
           }));
 
@@ -799,6 +831,27 @@ export default function BountyDetailPage() {
     trackerAnnounceUrls,
     waitForResolvedContract,
   ]);
+
+  const handleDownloadRecoveredFile = useCallback(() => {
+    if (!downloadedFileBlob && !downloadedFileUrl) {
+      return;
+    }
+
+    const downloadUrl = downloadedFileBlob ? URL.createObjectURL(downloadedFileBlob) : downloadedFileUrl;
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = requesterDownloadedFileName;
+    anchor.rel = "noopener";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+
+    if (downloadedFileBlob) {
+      window.setTimeout(() => {
+        URL.revokeObjectURL(downloadUrl);
+      }, 1000);
+    }
+  }, [downloadedFileBlob, downloadedFileUrl, requesterDownloadedFileName]);
 
   const activeHunterLabel = activeHunter?.userId ?? "No hunter selected";
 
@@ -1203,7 +1256,7 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {downloadedFileUrl ? (
+          {downloadedFileBlob || downloadedFileUrl ? (
             <div className="protocol-subsection">
               <div className="panel-head">
                 <p className="eyebrow">Download</p>
@@ -1213,13 +1266,13 @@ export default function BountyDetailPage() {
                 The recovered file is stored in this browser session and can be saved locally.
               </p>
               <div className="button-row">
-                <a
+                <button
                   className="primary-button"
-                  download={requesterDownloadedFileName}
-                  href={downloadedFileUrl}
+                  onClick={handleDownloadRecoveredFile}
+                  type="button"
                 >
                   Download recovered file
-                </a>
+                </button>
               </div>
             </div>
           ) : null}
