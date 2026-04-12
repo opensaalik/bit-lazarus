@@ -9,12 +9,13 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
     handleFundEscrow,
     handleSyncBounty,
     handleHuntBounty,
-    hasWebLn,
-    health,
     formatBytes,
   } = useApp();
 
+  const hunters = Array.isArray(bounty.hunters) ? bounty.hunters : [];
+  const tags = Array.isArray(bounty.tags) ? bounty.tags : [];
   const isCreator = bounty.creatorUserId === currentUser?.id;
+  const pieceCount = Number.isFinite(bounty.torrentMeta?.pieceCount) ? bounty.torrentMeta.pieceCount : null;
 
   return (
     <article className={`bounty-card${compact ? " bounty-card-compact" : ""}`}>
@@ -46,11 +47,11 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
         </div>
         <div>
           <span>Hunters</span>
-          <strong>{bounty.hunters.length}</strong>
+          <strong>{hunters.length}</strong>
         </div>
         <div>
-          <span>Pieces</span>
-          <strong>{bounty.missingPieces.length}</strong>
+          <span>Torrent pieces</span>
+          <strong>{pieceCount == null ? "—" : pieceCount.toLocaleString()}</strong>
         </div>
         {bounty.torrentMeta?.totalSize ? (
           <div>
@@ -66,7 +67,7 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
         ) : null}
       </div>
       <div className="chip-row">
-        {bounty.tags.map((tag) => (
+        {tags.map((tag) => (
           <span className="chip" key={tag}>{tag}</span>
         ))}
       </div>
@@ -85,11 +86,7 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
               onClick={() => handleFundEscrow(bounty)}
               type="button"
             >
-              {hasWebLn
-                ? "Fund escrow via Alby"
-                : health?.demoCapabilities?.backendPayments
-                  ? "Fund escrow from Polar"
-                  : "Copy invoice"}
+              Fund escrow from Polar
             </button>
           ) : null}
           {bounty.hasTorrentFile ? (

@@ -3,23 +3,16 @@ import { Link, useParams } from "react-router-dom";
 import BountyCard from "../components/BountyCard.jsx";
 import { requestBytes, requestJson } from "../lib/api.js";
 import { useApp } from "../context/AppContext.jsx";
-import { createSignedNostrEvent } from "../lib/nostr.js";
 import { computeSha256Hex } from "../lib/sha256.js";
-import { createInvoiceWithWebLn, sendPaymentWithWebLn, signMessageWithWebLn } from "../lib/webln.js";
 import {
   addTorrent,
   destroyWebTorrentClient,
+  loadTorrentData,
   removeTorrent,
-  seedTorrent,
 } from "../lib/webtorrent-client.js";
-import {
-  generatePieceProof,
-  parseTorrentMetadata,
-  verifyPieceProofFromRound,
-} from "../lib/torrent-piece-proof.js";
+import { parseTorrentFile } from "../lib/torrent-parser.js";
 
 const POLL_INTERVAL_MS = 3000;
-const HOLD_INVOICE_TIMEOUT_MS = 5000;
 
 function sortNewestFirst(left, right) {
   return String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? ""));
@@ -40,7 +33,7 @@ function getLatestById(records, preferredIds = []) {
   return [...records].sort(sortNewestFirst)[0];
 }
 
-function getProtocolHeadline({ bounty, activeSession, activeContract }) {
+function getProtocolHeadline({ bounty, activeContract, hunterCount }) {
   if (!bounty) {
     return "Loading workflow";
   }
@@ -49,50 +42,32 @@ function getProtocolHeadline({ bounty, activeSession, activeContract }) {
     return "Resolution complete";
   }
 
-  if (activeContract?.deliveryVerificationMode === "torrent-hash") {
-    if (activeContract?.deliveryHashStatus === "MISMATCHED") {
-      return "Hash mismatch detected";
-    }
-
-    if (activeContract?.state === "DELIVERY_VERIFIED") {
-      return "Waiting for final settlement";
-    }
-
-    if (activeContract?.state === "DELIVERY_IN_PROGRESS" && !activeContract?.hunterDeliveryFileSha256) {
-      return "Hunter must seed the file";
-    }
-
-    if (activeContract?.state === "DELIVERY_IN_PROGRESS" && activeContract?.hunterDeliveryFileSha256) {
-      return "Requester download and verify the file";
-    }
+  if (activeContract?.deliveryHashStatus === "MISMATCHED") {
+    return "Hash mismatch detected";
   }
 
   if (activeContract?.state === "DELIVERY_VERIFIED") {
     return "Waiting for final settlement";
   }
 
-  if (activeContract?.state === "DELIVERY_IN_PROGRESS") {
-    return "Delivery receipt required";
+  if (activeContract?.state === "DELIVERY_IN_PROGRESS" && !activeContract?.hunterDeliveryFileSha256) {
+    return "Hunter must seed the file";
+  }
+
+  if (activeContract?.state === "DELIVERY_IN_PROGRESS" && activeContract?.hunterDeliveryFileSha256) {
+    return "Requester download and verify the file";
   }
 
   if (activeContract?.state === "BOND_PENDING") {
     return "Fund the collateral bonds";
   }
 
-  if (activeSession?.status === "PROOF_SUBMITTED") {
-    return "Proof ready for review";
-  }
-
-  if (activeSession?.status === "PROOF_VERIFIED") {
-    return "Proof accepted, contract can start";
-  }
-
-  if (activeSession?.status === "PROOF_CHALLENGE_OPEN") {
-    return "Generate and submit proof";
-  }
-
   if (bounty.escrowStatus === "AWAITING_FUNDING") {
     return "Fund the bounty escrow";
+  }
+
+  if (bounty.status === "OPEN" && hunterCount > 0) {
+    return "Create the delivery contract";
   }
 
   if (bounty.status === "OPEN") {
@@ -118,10 +93,6 @@ function formatProtocolRole({ bounty, currentUser, isJoinedHunter }) {
   return "Viewer";
 }
 
-function uniquePieceIndexes(pieceIndexes) {
-  return [...new Set((pieceIndexes ?? []).filter((pieceIndex) => Number.isInteger(pieceIndex)))].sort((a, b) => a - b);
-}
-
 function getUserBondEscrowId(contract, userId) {
   if (!contract || !userId) {
     return null;
@@ -136,15 +107,6 @@ function getUserBondEscrowId(contract, userId) {
   }
 
   return null;
-}
-
-function getOutstandingReceiptPieceIndexes(contract, receipts) {
-  if (!contract || (contract.deliveryVerificationMode ?? "receipt") !== "receipt") {
-    return [];
-  }
-
-  const submittedPieceIndexes = new Set((receipts ?? []).map((receipt) => receipt.pieceIndex));
-  return contract.pieceIndexes.filter((pieceIndex) => !submittedPieceIndexes.has(pieceIndex));
 }
 
 function formatPercent(value) {
@@ -170,11 +132,9 @@ async function safelyRemoveTorrent(torrent) {
 
 export default function BountyDetailPage() {
   const { bountyId } = useParams();
-  const { token, currentUser, mergeBounty, bounties, hasNostr, hasWebLn, health, setStatusMessage } = useApp();
+  const { token, currentUser, mergeBounty, bounties, health, setStatusMessage } = useApp();
   const [bounty, setBounty] = useState(() => bounties.find((record) => record.id === bountyId) ?? null);
-  const [verificationSessions, setVerificationSessions] = useState([]);
   const [contracts, setContracts] = useState([]);
-  const [receipts, setReceipts] = useState([]);
   const [currentBondEscrow, setCurrentBondEscrow] = useState(null);
   const [rewardEscrow, setRewardEscrow] = useState(null);
   const [torrentBytes, setTorrentBytes] = useState(null);
@@ -183,13 +143,9 @@ export default function BountyDetailPage() {
   const [protocolError, setProtocolError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [selectedPieces, setSelectedPieces] = useState([]);
+  const [selectedHunterUserId, setSelectedHunterUserId] = useState("");
   const [contentFileName, setContentFileName] = useState("");
   const [contentBytes, setContentBytes] = useState(null);
-  const [generatedProofs, setGeneratedProofs] = useState([]);
-  const [browserVerification, setBrowserVerification] = useState([]);
-  const [verificationSummary, setVerificationSummary] = useState("Browser-assisted verification");
-  const [autoReceiptKey, setAutoReceiptKey] = useState("");
   const [deliverySeedStatus, setDeliverySeedStatus] = useState({
     phase: "idle",
     infoHash: null,
@@ -206,6 +162,8 @@ export default function BountyDetailPage() {
     expectedSha256: null,
     fileSha256: null,
   });
+  const [downloadedFileUrl, setDownloadedFileUrl] = useState(null);
+  const [downloadedFileName, setDownloadedFileName] = useState("");
   const hunterSeedTorrentRef = useRef(null);
   const requesterDownloadTorrentRef = useRef(null);
 
@@ -219,60 +177,52 @@ export default function BountyDetailPage() {
   useEffect(() => {
     setTorrentBytes(null);
     setTorrentMetadata(null);
-    setGeneratedProofs([]);
-    setBrowserVerification([]);
     setContentBytes(null);
     setContentFileName("");
   }, [bountyId]);
 
+  const bountyHunters = Array.isArray(bounty?.hunters) ? bounty.hunters : [];
   const isCreator = bounty?.creatorUserId === currentUser?.id;
-  const isJoinedHunter = Boolean(currentUser && bounty?.hunters.some((hunter) => hunter.userId === currentUser.id));
+  const isJoinedHunter = Boolean(currentUser && bountyHunters.some((hunter) => hunter.userId === currentUser.id));
   const isParticipant = Boolean(token && currentUser && (isCreator || isJoinedHunter));
-  const usingWebLnIdentity = currentUser?.walletType === "webln";
-  const usingNostrIdentity = currentUser?.walletType === "nostr";
-  const demoCapabilities = health?.demoCapabilities ?? {};
-  const hasBackendDemoPayments = Boolean(demoCapabilities.backendPayments);
-  const hasBackendDemoPayoutInvoices = Boolean(demoCapabilities.backendPayoutInvoices);
-  const hasBackendDemoReceipts = Boolean(demoCapabilities.backendReceiptSigning);
   const trackerAnnounceUrls = useMemo(() => getTrackerAnnounceUrls(health), [health]);
-  const canUseWebLnPayments = hasWebLn || hasBackendDemoPayments;
-  const canCreatePayoutInvoice = hasWebLn || hasBackendDemoPayoutInvoices;
-  const canSignReceipts = (
-    (usingWebLnIdentity && hasWebLn)
-    || (usingNostrIdentity && hasNostr)
-    || (isCreator && hasBackendDemoReceipts)
-  );
   const canUseWebTorrentTransfer = trackerAnnounceUrls.length > 0;
+  const bountyFundingPaymentRequest = bounty?.funding?.paymentRequest ?? null;
   const activeContract = useMemo(
     () => getLatestById(contracts, bounty?.activeContractIds ?? []),
     [contracts, bounty?.activeContractIds],
   );
-  const activeSession = useMemo(() => {
+  const activeHunter = useMemo(() => {
     if (activeContract) {
-      return verificationSessions.find((record) => record.id === activeContract.sessionId) ?? null;
+      return bountyHunters.find((hunter) => hunter.userId === activeContract.hunterUserId) ?? null;
     }
 
-    return getLatestById(verificationSessions, bounty?.verificationSessionIds ?? []);
-  }, [activeContract, bounty?.verificationSessionIds, verificationSessions]);
+    return bountyHunters.find((hunter) => hunter.userId === selectedHunterUserId) ?? bountyHunters[0] ?? null;
+  }, [activeContract, bountyHunters, selectedHunterUserId]);
   const currentRole = formatProtocolRole({ bounty, currentUser, isJoinedHunter });
-  const outstandingReceiptPieceIndexes = useMemo(
-    () => getOutstandingReceiptPieceIndexes(activeContract, receipts),
-    [activeContract, receipts],
-  );
-  const allProofsValid = browserVerification.length > 0 && browserVerification.every((result) => result.valid);
-  const usesTorrentHashDelivery = (activeContract?.deliveryVerificationMode ?? "receipt") === "torrent-hash";
+  const isActiveRequester = activeContract?.payerUserId === currentUser?.id;
+  const isActiveHunter = activeContract?.hunterUserId === currentUser?.id;
+  const requesterDownloadedFileName = downloadedFileName || activeContract?.hunterDeliveryFileName || "recovered-file.bin";
+  const contractResolved = String(activeContract?.state ?? "").startsWith("RESOLVED_");
   const shouldPoll = Boolean(
     token &&
       bountyId &&
-      (
-        bounty?.escrowStatus === "AWAITING_FUNDING" ||
-        activeSession?.status === "PROOF_SUBMITTED" ||
-        activeContract?.state === "BOND_PENDING" ||
-        activeContract?.state === "DELIVERY_IN_PROGRESS" ||
-        activeContract?.state === "DELIVERY_VERIFIED" ||
-        activeContract?.resolutionReadiness === "READY_FOR_RESOLUTION_SUCCESS"
-      ),
+      currentUser &&
+      bounty &&
+      (isCreator || isJoinedHunter) &&
+      !contractResolved &&
+      bounty.status !== "CANCELED",
   );
+
+  useEffect(() => {
+    if (activeContract || bountyHunters.length === 0) {
+      return;
+    }
+
+    if (!selectedHunterUserId || !bountyHunters.some((hunter) => hunter.userId === selectedHunterUserId)) {
+      setSelectedHunterUserId(bountyHunters[0].userId);
+    }
+  }, [activeContract, bountyHunters, selectedHunterUserId]);
 
   const ensureTorrentMetadataLoaded = useCallback(async () => {
     if (torrentBytes && torrentMetadata) {
@@ -280,11 +230,11 @@ export default function BountyDetailPage() {
     }
 
     if (!bounty?.hasTorrentFile) {
-      throw new Error("This bounty was created without a .torrent file. Browser proof flow requires the torrent file.");
+      throw new Error("This bounty was created without a .torrent file. Browser delivery requires the torrent file.");
     }
 
     const bytes = await requestBytes(`/bounties/${bounty.id}/torrent`, { token });
-    const metadata = await parseTorrentMetadata(bytes);
+    const metadata = await parseTorrentFile(bytes);
 
     setTorrentBytes(bytes);
     setTorrentMetadata(metadata);
@@ -316,38 +266,28 @@ export default function BountyDetailPage() {
       const canViewProtocol = Boolean(
         currentUser &&
           (nextBounty.creatorUserId === currentUser.id ||
-            nextBounty.hunters.some((hunter) => hunter.userId === currentUser.id)),
+            (Array.isArray(nextBounty.hunters) ? nextBounty.hunters : []).some((hunter) => hunter.userId === currentUser.id)),
       );
 
       if (!canViewProtocol) {
-        setVerificationSessions([]);
         setContracts([]);
-        setReceipts([]);
         setCurrentBondEscrow(null);
         setRewardEscrow(null);
         return nextBounty;
       }
 
-      const [sessionPayload, contractPayload] = await Promise.all([
-        requestJson(`/bounties/${bountyId}/verification-sessions`, { token }),
-        requestJson(`/bounties/${bountyId}/contracts`, { token }),
-      ]);
-      const nextSessions = [...sessionPayload.verificationSessions].sort(sortNewestFirst);
+      const contractPayload = await requestJson(`/bounties/${bountyId}/contracts`, { token });
       const nextContracts = [...contractPayload.contracts].sort(sortNewestFirst);
-
-      setVerificationSessions(nextSessions);
       setContracts(nextContracts);
 
       const nextActiveContract = getLatestById(nextContracts, nextBounty.activeContractIds ?? []);
 
       if (!nextActiveContract) {
-        setReceipts([]);
         setCurrentBondEscrow(null);
         setRewardEscrow(null);
         return nextBounty;
       }
 
-      const receiptPromise = requestJson(`/contracts/${nextActiveContract.id}/receipts`, { token });
       const bondEscrowId = getUserBondEscrowId(nextActiveContract, currentUser?.id);
       const escrowRequests = [];
 
@@ -367,9 +307,7 @@ export default function BountyDetailPage() {
         );
       }
 
-      const [receiptPayload, ...escrowPayloads] = await Promise.all([receiptPromise, ...escrowRequests]);
-
-      setReceipts(receiptPayload.receipts);
+      const escrowPayloads = await Promise.all(escrowRequests);
       setCurrentBondEscrow(escrowPayloads.find((record) => record.kind === "bond")?.escrow ?? null);
       setRewardEscrow(escrowPayloads.find((record) => record.kind === "reward")?.escrow ?? null);
 
@@ -409,26 +347,6 @@ export default function BountyDetailPage() {
   }, [bountyId, refreshDetail, token]);
 
   useEffect(() => {
-    if (selectedPieces.length > 0) {
-      return;
-    }
-
-    if (activeSession?.pieceIndexes?.length) {
-      setSelectedPieces(uniquePieceIndexes(activeSession.pieceIndexes));
-      return;
-    }
-
-    if (bounty?.missingPieces?.length) {
-      setSelectedPieces([bounty.missingPieces[0]]);
-    }
-  }, [activeSession?.pieceIndexes, bounty?.missingPieces, selectedPieces.length]);
-
-  useEffect(() => {
-    setGeneratedProofs([]);
-    setBrowserVerification([]);
-  }, [activeSession?.id]);
-
-  useEffect(() => {
     setDeliverySeedStatus({
       phase: "idle",
       infoHash: null,
@@ -444,6 +362,14 @@ export default function BountyDetailPage() {
       progress: 0,
       expectedSha256: null,
       fileSha256: null,
+    });
+    setDownloadedFileName("");
+    setDownloadedFileUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+
+      return null;
     });
 
     return () => {
@@ -510,46 +436,36 @@ export default function BountyDetailPage() {
 
   const handleFundEscrow = useCallback(() => {
     void runAction(async () => {
-      if (!bounty.funding?.paymentRequest) {
+      if (!bountyFundingPaymentRequest) {
         throw new Error("No Lightning invoice is available for this bounty escrow.");
       }
 
-      const paymentResult = hasWebLn
-        ? await sendPaymentWithWebLn(bounty.funding.paymentRequest, {
-          timeoutMs: HOLD_INVOICE_TIMEOUT_MS,
-        })
-        : await requestJson(`/bounties/${bountyId}/demo-fund`, {
-          method: "POST",
-          token,
-        });
-      await refreshDetail({ syncEscrow: true });
-      setStatusMessage(
-        paymentResult.timedOut ?? paymentResult.payment?.timedOut
-          ? "Funding request sent. Syncing escrow state..."
-          : hasWebLn
-            ? "Escrow payment sent and synced."
-            : "Escrow funded from Polar and synced.",
-      );
-    });
-  }, [bounty.funding?.paymentRequest, bountyId, hasWebLn, refreshDetail, runAction, setStatusMessage, token]);
-
-  const handleStartVerificationSession = useCallback(() => {
-    void runAction(async () => {
-      const pieceIndexes = uniquePieceIndexes(selectedPieces);
-
-      if (pieceIndexes.length === 0) {
-        throw new Error("Select at least one missing piece before opening a verification session.");
-      }
-
-      await requestJson(`/bounties/${bountyId}/verification-sessions`, {
+      await requestJson(`/bounties/${bountyId}/demo-fund`, {
         method: "POST",
         token,
-        body: { pieceIndexes },
+      });
+      await refreshDetail({ syncEscrow: true });
+      setStatusMessage("Escrow funded from Polar and synced.");
+    });
+  }, [bountyFundingPaymentRequest, bountyId, refreshDetail, runAction, setStatusMessage, token]);
+
+  const handleCreateContract = useCallback(() => {
+    void runAction(async () => {
+      const hunterUserId = activeHunter?.userId ?? selectedHunterUserId;
+
+      if (!hunterUserId) {
+        throw new Error("A joined hunter is required before a delivery contract can be created.");
+      }
+
+      await requestJson(`/bounties/${bountyId}/contracts`, {
+        method: "POST",
+        token,
+        body: { hunterUserId },
       });
       await refreshDetail({ quiet: true });
-      setStatusMessage(`Opened a verification session for piece${pieceIndexes.length === 1 ? "" : "s"} ${pieceIndexes.join(", ")}.`);
+      setStatusMessage("Created the delivery contract and opened both bond escrows.");
     });
-  }, [bountyId, refreshDetail, runAction, selectedPieces, setStatusMessage, token]);
+  }, [activeHunter?.userId, bountyId, refreshDetail, runAction, selectedHunterUserId, setStatusMessage, token]);
 
   const handleContentFileSelect = useCallback(async (event) => {
     const file = event.target.files?.[0];
@@ -561,145 +477,8 @@ export default function BountyDetailPage() {
     const bytes = new Uint8Array(await file.arrayBuffer());
     setContentBytes(bytes);
     setContentFileName(file.name);
-    setGeneratedProofs([]);
     setStatusMessage(`Loaded content file ${file.name}.`);
   }, [setStatusMessage]);
-
-  const handleGenerateProofs = useCallback(() => {
-    void runAction(async () => {
-      if (!activeSession) {
-        throw new Error("Open a verification session before generating proof.");
-      }
-
-      if (!contentBytes) {
-        throw new Error("Load the recovered content file before generating proof.");
-      }
-
-      const { torrentBytes: loadedTorrentBytes } = await ensureTorrentMetadataLoaded();
-      const proofs = [];
-
-      for (const pieceIndex of activeSession.pieceIndexes) {
-        const proof = await generatePieceProof({
-          torrentBytes: loadedTorrentBytes,
-          contentBytes,
-          pieceIndex,
-        });
-        proofs.push(proof);
-      }
-
-      setGeneratedProofs(proofs);
-      setStatusMessage(`Generated ${proofs.length} proof artifact${proofs.length === 1 ? "" : "s"} from ${contentFileName || "the selected file"}.`);
-    });
-  }, [activeSession, contentBytes, contentFileName, ensureTorrentMetadataLoaded, runAction, setStatusMessage]);
-
-  const handleSubmitProofs = useCallback(() => {
-    void runAction(async () => {
-      if (!activeSession) {
-        throw new Error("No verification session is active.");
-      }
-
-      if (generatedProofs.length === 0) {
-        throw new Error("Generate proof artifacts before submitting them.");
-      }
-
-      await requestJson(`/verification-sessions/${activeSession.id}/proof`, {
-        method: "POST",
-        token,
-        body: {
-          proofArtifacts: {
-            torrentInfoHash: bounty?.torrentInfoHash,
-            torrentName: bounty?.torrentName ?? "torrent",
-            proofs: generatedProofs,
-          },
-        },
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage("Submitted proof artifacts for requester review.");
-    });
-  }, [activeSession, bounty?.torrentInfoHash, bounty?.torrentName, generatedProofs, refreshDetail, runAction, setStatusMessage, token]);
-
-  const handleRunBrowserVerification = useCallback(() => {
-    void runAction(async () => {
-      if (!activeSession?.proofArtifacts?.proofs?.length) {
-        throw new Error("No submitted proof artifacts are available to verify.");
-      }
-
-      const { torrentMetadata: loadedTorrentMetadata } = await ensureTorrentMetadataLoaded();
-      const results = activeSession.proofArtifacts.proofs.map((proof) => {
-        const expectedPieceHashHex = loadedTorrentMetadata.pieces[proof.pieceIndex];
-        const verification = verifyPieceProofFromRound({
-          pieceHashHex: expectedPieceHashHex,
-          revealRound: proof.revealRound,
-          preBlockState: proof.preBlockState,
-          roundRevealState: proof.roundRevealState,
-          remainingScheduleWords: proof.remainingScheduleWords,
-        });
-        const metadataMatches = expectedPieceHashHex === String(proof.pieceHashHex).toLowerCase();
-
-        return {
-          pieceIndex: proof.pieceIndex,
-          expectedPieceHashHex,
-          proofPieceHashHex: proof.pieceHashHex,
-          computedPieceHashHex: verification.computedPieceHashHex,
-          valid: verification.valid && metadataMatches,
-        };
-      });
-
-      setBrowserVerification(results);
-      setStatusMessage(results.every((result) => result.valid) ? "Browser verification passed for all submitted pieces." : "Browser verification found one or more invalid pieces.");
-    });
-  }, [activeSession?.proofArtifacts?.proofs, ensureTorrentMetadataLoaded, runAction, setStatusMessage]);
-
-  const handleConfirmProofVerification = useCallback(() => {
-    void runAction(async () => {
-      if (!activeSession) {
-        throw new Error("No verification session is active.");
-      }
-
-      if (browserVerification.length === 0) {
-        throw new Error("Run browser verification before confirming the proof.");
-      }
-
-      const verifiedPieceIndexes = browserVerification.filter((result) => result.valid).map((result) => result.pieceIndex);
-
-      if (verifiedPieceIndexes.length === 0) {
-        throw new Error("No valid pieces are available to confirm.");
-      }
-
-      await requestJson(`/verification-sessions/${activeSession.id}/verify`, {
-        method: "POST",
-        token,
-        body: {
-          verifiedPieceIndexes,
-          verificationSummary: verificationSummary.trim() || "Browser-assisted verification",
-        },
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage(`Marked ${verifiedPieceIndexes.length} piece${verifiedPieceIndexes.length === 1 ? "" : "s"} as verified.`);
-    });
-  }, [activeSession, browserVerification, refreshDetail, runAction, setStatusMessage, token, verificationSummary]);
-
-  const handleCreateContract = useCallback(() => {
-    void runAction(async () => {
-      if (!activeSession) {
-        throw new Error("Proof must be verified before creating a contract.");
-      }
-
-      const pieceIndexes = uniquePieceIndexes(activeSession.verifiedPieceIndexes);
-
-      if (pieceIndexes.length === 0) {
-        throw new Error("No verified pieces are available for a delivery contract.");
-      }
-
-      await requestJson(`/verification-sessions/${activeSession.id}/contracts`, {
-        method: "POST",
-        token,
-        body: { pieceIndexes },
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage("Created the delivery contract and opened both bond escrows.");
-    });
-  }, [activeSession, refreshDetail, runAction, setStatusMessage, token]);
 
   const handleRegisterPayoutInvoice = useCallback(() => {
     void runAction(async () => {
@@ -707,29 +486,14 @@ export default function BountyDetailPage() {
         throw new Error("A delivery contract is required before registering payout details.");
       }
 
-      if (hasWebLn) {
-        const invoice = await createInvoiceWithWebLn({
-          amountSats: bounty?.rewardSats ?? 0,
-          memo: `Bit Lazarus payout for ${activeContract.id}`,
-        });
-
-        await requestJson(`/contracts/${activeContract.id}/payout-invoice`, {
-          method: "POST",
-          token,
-          body: {
-            paymentRequest: invoice.paymentRequest,
-          },
-        });
-      } else {
-        await requestJson(`/contracts/${activeContract.id}/demo-payout-invoice`, {
-          method: "POST",
-          token,
-        });
-      }
+      await requestJson(`/contracts/${activeContract.id}/demo-payout-invoice`, {
+        method: "POST",
+        token,
+      });
       await refreshDetail({ quiet: true });
-      setStatusMessage(hasWebLn ? "Registered the hunter payout invoice from your WebLN wallet." : "Created and registered the hunter payout invoice from Polar.");
+      setStatusMessage("Created and registered the hunter payout invoice from Polar.");
     });
-  }, [activeContract, bounty?.rewardSats, hasWebLn, refreshDetail, runAction, setStatusMessage, token]);
+  }, [activeContract, refreshDetail, runAction, setStatusMessage, token]);
 
   const handlePayBond = useCallback(() => {
     void runAction(async () => {
@@ -737,31 +501,14 @@ export default function BountyDetailPage() {
         throw new Error("Your bond invoice is not available.");
       }
 
-      const paymentResult = hasWebLn
-        ? await sendPaymentWithWebLn(currentBondEscrow.funding.paymentRequest, {
-          timeoutMs: HOLD_INVOICE_TIMEOUT_MS,
-        })
-        : await requestJson(`/contracts/${activeContract.id}/demo-pay-bond`, {
-          method: "POST",
-          token,
-        });
-
-      if (hasWebLn) {
-        await requestJson(`/contracts/${activeContract.id}/sync-bonds`, {
-          method: "POST",
-          token,
-        });
-      }
+      await requestJson(`/contracts/${activeContract.id}/demo-pay-bond`, {
+        method: "POST",
+        token,
+      });
       await refreshDetail({ quiet: true });
-      setStatusMessage(
-        paymentResult.timedOut ?? paymentResult.payment?.timedOut
-          ? "Bond payment requested. Syncing contract state..."
-          : hasWebLn
-            ? "Bond payment sent and synced."
-            : "Bond payment sent from Polar and synced.",
-      );
+      setStatusMessage("Bond payment sent from Polar and synced.");
     });
-  }, [activeContract, currentBondEscrow?.funding?.paymentRequest, hasWebLn, refreshDetail, runAction, setStatusMessage, token]);
+  }, [activeContract, currentBondEscrow?.funding?.paymentRequest, refreshDetail, runAction, setStatusMessage, token]);
 
   const handleSyncBonds = useCallback(() => {
     void runAction(async () => {
@@ -808,7 +555,10 @@ export default function BountyDetailPage() {
         throw new Error("The backend WebTorrent tracker is not configured.");
       }
 
-      const { torrentMetadata: loadedTorrentMetadata } = await ensureTorrentMetadataLoaded();
+      const {
+        torrentBytes: loadedTorrentBytes,
+        torrentMetadata: loadedTorrentMetadata,
+      } = await ensureTorrentMetadataLoaded();
 
       if (!loadedTorrentMetadata?.name || !loadedTorrentMetadata?.pieceLength) {
         throw new Error("This torrent does not include enough metadata to reproduce the original swarm.");
@@ -846,12 +596,8 @@ export default function BountyDetailPage() {
       const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
         type: "application/octet-stream",
       });
-      const torrent = await seedTorrent(seedFile, {
-        name: loadedTorrentMetadata.name,
-        pieceLength: loadedTorrentMetadata.pieceLength,
+      const torrent = await addTorrent(loadedTorrentBytes, {
         announce: trackerAnnounceUrls,
-        private: loadedTorrentMetadata.isPrivate ? 1 : undefined,
-        info: loadedTorrentMetadata.infoOverrides,
       });
 
       if (String(torrent.infoHash).toLowerCase() !== String(bounty?.torrentInfoHash ?? "").toLowerCase()) {
@@ -862,6 +608,8 @@ export default function BountyDetailPage() {
         }));
         throw new Error("The selected file does not reproduce the original torrent info hash.");
       }
+
+      await loadTorrentData(torrent, seedFile);
 
       hunterSeedTorrentRef.current = torrent;
 
@@ -937,6 +685,14 @@ export default function BountyDetailPage() {
         expectedSha256,
         fileSha256: null,
       });
+      setDownloadedFileName("");
+      setDownloadedFileUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+
+        return null;
+      });
 
       const torrent = await addTorrent(loadedTorrentBytes, {
         announce: trackerAnnounceUrls,
@@ -955,7 +711,7 @@ export default function BountyDetailPage() {
         }));
       };
 
-      torrent.on("wire", updateDownloadStatus);
+      torrent.on("wire", () => updateDownloadStatus("downloading"));
       torrent.on("download", () => updateDownloadStatus("downloading"));
       torrent.on("error", (error) => {
         setProtocolError(error.message ?? String(error));
@@ -976,6 +732,18 @@ export default function BountyDetailPage() {
 
           const fileBuffer = await primaryFile.arrayBuffer();
           const fileSha256 = await computeSha256Hex(fileBuffer);
+          const fileBlob = new Blob([fileBuffer], { type: "application/octet-stream" });
+          const nextDownloadUrl = URL.createObjectURL(fileBlob);
+          const nextDownloadName = activeContract.hunterDeliveryFileName || primaryFile.name || loadedTorrentMetadata.name;
+
+          setDownloadedFileUrl((current) => {
+            if (current) {
+              URL.revokeObjectURL(current);
+            }
+
+            return nextDownloadUrl;
+          });
+          setDownloadedFileName(nextDownloadName);
 
           setDeliveryDownloadStatus((current) => ({
             ...current,
@@ -1032,135 +800,7 @@ export default function BountyDetailPage() {
     waitForResolvedContract,
   ]);
 
-  const handleSubmitReceipts = useCallback(() => {
-    void runAction(async () => {
-      if (!activeContract) {
-        throw new Error("No delivery contract is active.");
-      }
-
-      if (outstandingReceiptPieceIndexes.length === 0) {
-        throw new Error("All required receipts have already been submitted.");
-      }
-
-      let latestContract = activeContract;
-
-      if (isCreator && hasBackendDemoReceipts && currentUser?.walletType === "bitcoin") {
-        const payload = await requestJson(`/contracts/${activeContract.id}/demo-submit-receipts`, {
-          method: "POST",
-          token,
-        });
-
-        latestContract = payload.contract;
-      } else {
-        const { torrentMetadata: loadedTorrentMetadata } = await ensureTorrentMetadataLoaded();
-
-        for (const pieceIndex of outstandingReceiptPieceIndexes) {
-          const pieceHash = loadedTorrentMetadata.pieces[pieceIndex];
-          const receiptMessage = `deliveryContractId=${activeContract.id}|pieceIndex=${pieceIndex}|pieceHash=${pieceHash}`;
-          const receiptBody = {
-            pieceIndex,
-            receiptMessage,
-            receiptSignerWalletAddress: currentUser?.walletAddress,
-          };
-
-          if (usingNostrIdentity) {
-            const { signedEvent } = await createSignedNostrEvent({
-              kind: 27235,
-              content: receiptMessage,
-              tags: [
-                ["bit-lazarus", "piece-receipt"],
-                ["contract", activeContract.id],
-                ["piece", String(pieceIndex)],
-              ],
-            });
-            receiptBody.receiptSignedEvent = signedEvent;
-          } else if (usingWebLnIdentity) {
-            receiptBody.receiptSignature = await signMessageWithWebLn(receiptMessage);
-          } else {
-            throw new Error("This browser session cannot sign receipts. Reconnect with a supported wallet provider.");
-          }
-
-          const payload = await requestJson(`/contracts/${activeContract.id}/receipts`, {
-            method: "POST",
-            token,
-            body: receiptBody,
-          });
-
-          latestContract = payload.contract;
-        }
-      }
-
-      if (!String(latestContract.state ?? "").startsWith("RESOLVED_")) {
-        latestContract = (await waitForResolvedContract(activeContract.id)) ?? latestContract;
-      }
-
-      await refreshDetail({ quiet: true });
-      setStatusMessage(String(latestContract.state ?? "").startsWith("RESOLVED_") ? `Contract ${latestContract.state} confirmed.` : "Receipts submitted. Waiting for final resolution.");
-    });
-  }, [
-    activeContract,
-    currentUser?.walletAddress,
-    ensureTorrentMetadataLoaded,
-    hasBackendDemoReceipts,
-    isCreator,
-    outstandingReceiptPieceIndexes,
-    refreshDetail,
-    runAction,
-    setStatusMessage,
-    token,
-    usingNostrIdentity,
-    usingWebLnIdentity,
-    waitForResolvedContract,
-  ]);
-
-  useEffect(() => {
-    if (
-      !isCreator ||
-      !hasBackendDemoReceipts ||
-      currentUser?.walletType !== "bitcoin" ||
-      activeContract?.state !== "DELIVERY_IN_PROGRESS" ||
-      outstandingReceiptPieceIndexes.length === 0
-    ) {
-      return;
-    }
-
-    const nextKey = `${activeContract.id}:${outstandingReceiptPieceIndexes.join(",")}`;
-
-    if (autoReceiptKey === nextKey) {
-      return;
-    }
-
-    setAutoReceiptKey(nextKey);
-
-    void (async () => {
-      try {
-        const payload = await requestJson(`/contracts/${activeContract.id}/demo-submit-receipts`, {
-          method: "POST",
-          token,
-        });
-        await refreshDetail({ quiet: true });
-        setStatusMessage(
-          String(payload.contract?.state ?? "").startsWith("RESOLVED_")
-            ? `Contract ${payload.contract.state} confirmed.`
-            : "Submitted requester receipts automatically from Polar.",
-        );
-      } catch (error) {
-        setProtocolError(error.message ?? String(error));
-        setAutoReceiptKey("");
-      }
-    })();
-  }, [
-    activeContract?.id,
-    activeContract?.state,
-    autoReceiptKey,
-    currentUser?.walletType,
-    hasBackendDemoReceipts,
-    isCreator,
-    outstandingReceiptPieceIndexes,
-    refreshDetail,
-    setStatusMessage,
-    token,
-  ]);
+  const activeHunterLabel = activeHunter?.userId ?? "No hunter selected";
 
   if (!token) {
     return (
@@ -1235,7 +875,7 @@ export default function BountyDetailPage() {
         <section className="glass-panel stack">
           <div className="panel-head">
             <p className="eyebrow">Workflow</p>
-            <h2>{getProtocolHeadline({ bounty, activeSession, activeContract })}</h2>
+            <h2>{getProtocolHeadline({ bounty, activeContract, hunterCount: bountyHunters.length })}</h2>
           </div>
 
           <div className="chip-row">
@@ -1250,30 +890,17 @@ export default function BountyDetailPage() {
           {loadError && bounty ? <p className="muted-copy">{loadError}</p> : null}
 
           <div className="protocol-list">
-            <div className={`protocol-card${activeSession ? " is-active" : ""}`}>
-              <span>Active session</span>
-              <strong>{activeSession ? activeSession.status : "No verification session yet"}</strong>
-              <small>{activeSession ? activeSession.id : "A joined hunter opens the proof session."}</small>
+            <div className={`protocol-card${bountyHunters.length > 0 ? " is-active" : ""}`}>
+              <span>Joined hunters</span>
+              <strong>{bountyHunters.length}</strong>
+              <small>{activeHunterLabel}</small>
             </div>
             <div className={`protocol-card${activeContract ? " is-active" : ""}`}>
               <span>Active contract</span>
               <strong>{activeContract ? activeContract.state : "No contract yet"}</strong>
-              <small>{activeContract ? activeContract.id : "Requester creates the contract after proof verification."}</small>
+              <small>{activeContract ? activeContract.id : "Requester creates the contract after a hunter joins."}</small>
             </div>
           </div>
-
-          {activeSession?.pieceIndexes?.length ? (
-            <div className="protocol-subsection">
-              <h3>Tracked pieces</h3>
-              <div className="chip-row">
-                {activeSession.pieceIndexes.map((pieceIndex) => (
-                  <span className="chip" key={pieceIndex}>
-                    Piece {pieceIndex}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           {activeContract ? (
             <div className="detail-grid protocol-detail-grid">
@@ -1286,12 +913,8 @@ export default function BountyDetailPage() {
                 <strong>{activeContract.hunterBondStatus}</strong>
               </div>
               <div>
-                <span>{usesTorrentHashDelivery ? "Delivery hash" : "Receipts"}</span>
-                <strong>
-                  {usesTorrentHashDelivery
-                    ? activeContract.deliveryHashStatus
-                    : `${receipts.length}/${activeContract.requiredReceipts}`}
-                </strong>
+                <span>Delivery hash</span>
+                <strong>{activeContract.deliveryHashStatus}</strong>
               </div>
               <div>
                 <span>Payout invoice</span>
@@ -1300,19 +923,9 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {!canUseWebLnPayments ? (
-            <p className="muted-copy">
-              Lightning funding and payout actions on this page require either a WebLN wallet in this browser or a Polar demo backend configured on the server.
-            </p>
-          ) : null}
-          {usesTorrentHashDelivery && !canUseWebTorrentTransfer ? (
+          {!canUseWebTorrentTransfer ? (
             <p className="muted-copy">
               The backend WebTorrent tracker is not configured, so the hash-verified delivery phase cannot start in the browser.
-            </p>
-          ) : null}
-          {!usesTorrentHashDelivery && !canSignReceipts ? (
-            <p className="muted-copy">
-              Receipt signing requires a supported identity provider, or a Polar demo receipt signer on the backend for Bitcoin-authenticated requester sessions.
             </p>
           ) : null}
         </section>
@@ -1325,7 +938,7 @@ export default function BountyDetailPage() {
                 <h3>Become the hunter</h3>
               </div>
               <p className="muted-copy">
-                Join this bounty to open a verification session and submit proof from your browser.
+                Join this bounty to enter the bonded delivery flow.
               </p>
               <div className="button-row">
                 <button
@@ -1360,11 +973,11 @@ export default function BountyDetailPage() {
               <div className="button-row">
                 <button
                   className="primary-button"
-                  disabled={actionLoading || !bounty.funding?.paymentRequest || !canUseWebLnPayments}
+                  disabled={actionLoading || !bountyFundingPaymentRequest}
                   onClick={handleFundEscrow}
                   type="button"
                 >
-                  {hasWebLn ? "Pay escrow via WebLN" : "Fund escrow from Polar"}
+                  Fund escrow from Polar
                 </button>
                 <button
                   className="secondary-button"
@@ -1378,158 +991,44 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {isJoinedHunter && bounty.status === "OPEN" && !activeSession ? (
+          {isCreator && bounty.status === "OPEN" && !activeContract && bountyHunters.length === 0 ? (
             <div className="protocol-subsection">
               <div className="panel-head">
-                <p className="eyebrow">Session</p>
-                <h3>Open a verification session</h3>
+                <p className="eyebrow">Waiting</p>
+                <h3>No hunter has joined yet</h3>
               </div>
               <p className="muted-copy">
-                Choose the missing pieces you can prove and start the browser-side proof flow.
+                Once a hunter joins, create the delivery contract and open both bond escrows.
               </p>
-              <div className="piece-picker">
-                {bounty.missingPieces.map((pieceIndex) => {
-                  const checked = selectedPieces.includes(pieceIndex);
-
-                  return (
-                    <label className="piece-option" key={pieceIndex}>
-                      <input
-                        checked={checked}
-                        onChange={(event) => {
-                          setSelectedPieces((current) => (
-                            event.target.checked
-                              ? uniquePieceIndexes([...current, pieceIndex])
-                              : current.filter((value) => value !== pieceIndex)
-                          ));
-                        }}
-                        type="checkbox"
-                      />
-                      <span>Piece {pieceIndex}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  disabled={actionLoading}
-                  onClick={handleStartVerificationSession}
-                  type="button"
-                >
-                  Start verification session
-                </button>
-              </div>
             </div>
           ) : null}
 
-          {isJoinedHunter && activeSession?.status === "PROOF_CHALLENGE_OPEN" ? (
-            <div className="protocol-subsection">
-              <div className="panel-head">
-                <p className="eyebrow">Hunter proof</p>
-                <h3>Generate proof from the recovered file</h3>
-              </div>
-              <p className="muted-copy">
-                Load the single-file torrent content in your browser, generate the SHA-1 round disclosure, then submit it for requester review.
-              </p>
-              <label className="field">
-                <span>Recovered content file</span>
-                <input accept="*" onChange={handleContentFileSelect} type="file" />
-              </label>
-              {contentFileName ? <p className="muted-copy">Loaded: {contentFileName}</p> : null}
-              {generatedProofs.length > 0 ? (
-                <div className="protocol-list">
-                  {generatedProofs.map((proof) => (
-                    <div className="protocol-card is-active" key={proof.pieceIndex}>
-                      <span>Generated proof</span>
-                      <strong>Piece {proof.pieceIndex}</strong>
-                      <small>{proof.pieceHashHex}</small>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <div className="button-row">
-                <button
-                  className="secondary-button"
-                  disabled={actionLoading}
-                  onClick={handleGenerateProofs}
-                  type="button"
-                >
-                  Generate proof
-                </button>
-                <button
-                  className="primary-button"
-                  disabled={actionLoading || generatedProofs.length === 0}
-                  onClick={handleSubmitProofs}
-                  type="button"
-                >
-                  Submit proof
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {isCreator && activeSession?.status === "PROOF_SUBMITTED" ? (
-            <div className="protocol-subsection">
-              <div className="panel-head">
-                <p className="eyebrow">Requester review</p>
-                <h3>Verify the hunter proof in-browser</h3>
-              </div>
-              <p className="muted-copy">
-                Recompute the disclosed SHA-1 suffix rounds in the browser, then confirm the valid pieces on-chain.
-              </p>
-              {browserVerification.length > 0 ? (
-                <div className="protocol-list">
-                  {browserVerification.map((result) => (
-                    <div className={`protocol-card${result.valid ? " is-active" : ""}`} key={result.pieceIndex}>
-                      <span>Piece {result.pieceIndex}</span>
-                      <strong>{result.valid ? "Verified" : "Invalid"}</strong>
-                      <small>{result.computedPieceHashHex}</small>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <label className="field">
-                <span>Verification summary</span>
-                <textarea
-                  onChange={(event) => setVerificationSummary(event.target.value)}
-                  rows={3}
-                  value={verificationSummary}
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  className="secondary-button"
-                  disabled={actionLoading}
-                  onClick={handleRunBrowserVerification}
-                  type="button"
-                >
-                  Run browser verification
-                </button>
-                <button
-                  className="primary-button"
-                  disabled={actionLoading || !allProofsValid}
-                  onClick={handleConfirmProofVerification}
-                  type="button"
-                >
-                  Confirm verified pieces
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {isCreator && activeSession?.status === "PROOF_VERIFIED" && !activeContract ? (
+          {isCreator && bounty.status === "OPEN" && !activeContract && bountyHunters.length > 0 ? (
             <div className="protocol-subsection">
               <div className="panel-head">
                 <p className="eyebrow">Contract</p>
-                <h3>Lock in delivery</h3>
+                <h3>Choose the hunter and lock in delivery</h3>
               </div>
               <p className="muted-copy">
-                Create the delivery contract to open the payer and hunter bond escrows for the verified pieces.
+                Skip pre-verification and rely on the bond system plus final SHA-256 match to settle the demo.
               </p>
+              <label className="field">
+                <span>Hunter</span>
+                <select
+                  onChange={(event) => setSelectedHunterUserId(event.target.value)}
+                  value={selectedHunterUserId}
+                >
+                  {bountyHunters.map((hunter) => (
+                    <option key={hunter.userId} value={hunter.userId}>
+                      {hunter.userId}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="button-row">
                 <button
                   className="primary-button"
-                  disabled={actionLoading}
+                  disabled={actionLoading || !selectedHunterUserId}
                   onClick={handleCreateContract}
                   type="button"
                 >
@@ -1539,7 +1038,19 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {isJoinedHunter && activeContract && !activeContract.hunterPayoutPaymentRequest ? (
+          {isJoinedHunter && !activeContract && bounty.status === "OPEN" ? (
+            <div className="protocol-subsection">
+              <div className="panel-head">
+                <p className="eyebrow">Waiting</p>
+                <h3>Requester must create the contract</h3>
+              </div>
+              <p className="muted-copy">
+                The requester will choose a hunter and open both bond escrows before delivery starts.
+              </p>
+            </div>
+          ) : null}
+
+          {isActiveHunter && activeContract && !activeContract.hunterPayoutPaymentRequest ? (
             <div className="protocol-subsection">
               <div className="panel-head">
                 <p className="eyebrow">Payout</p>
@@ -1551,7 +1062,7 @@ export default function BountyDetailPage() {
               <div className="button-row">
                 <button
                   className="primary-button"
-                  disabled={actionLoading || !canCreatePayoutInvoice}
+                  disabled={actionLoading}
                   onClick={handleRegisterPayoutInvoice}
                   type="button"
                 >
@@ -1561,39 +1072,43 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {activeContract ? (
+          {activeContract && currentBondEscrow ? (
             <div className="protocol-subsection">
               <div className="panel-head">
                 <p className="eyebrow">Bond</p>
-                <h3>Collateral funding</h3>
+                <h3>Fund your bond escrow</h3>
               </div>
               <p className="muted-copy">
-                Each side funds a bond hold invoice. In demo mode these payments are sent directly from the corresponding Polar nodes.
+                Each side locks {bounty.bondAmountSats.toLocaleString()} sats as collateral. The backend can pay your bond from the mapped Polar node.
               </p>
               <div className="detail-grid protocol-detail-grid">
                 <div>
-                  <span>Your bond state</span>
-                  <strong>
-                    {currentUser?.id === activeContract.payerUserId
-                      ? activeContract.payerBondStatus
-                      : currentUser?.id === activeContract.hunterUserId
-                        ? activeContract.hunterBondStatus
-                        : "N/A"}
-                  </strong>
+                  <span>Escrow</span>
+                  <strong>{currentBondEscrow.status}</strong>
+                </div>
+                <div>
+                  <span>Amount</span>
+                  <strong>{currentBondEscrow.amountSats?.toLocaleString() ?? bounty.bondAmountSats.toLocaleString()} sats</strong>
                 </div>
                 <div>
                   <span>Invoice</span>
-                  <strong>{currentBondEscrow?.funding?.paymentRequest ? "Ready" : "Unavailable"}</strong>
+                  <strong>{currentBondEscrow.funding?.paymentRequest ? "Ready" : "Missing"}</strong>
                 </div>
+                {rewardEscrow ? (
+                  <div>
+                    <span>Reward escrow</span>
+                    <strong>{rewardEscrow.status}</strong>
+                  </div>
+                ) : null}
               </div>
               <div className="button-row">
                 <button
                   className="primary-button"
-                  disabled={actionLoading || !currentBondEscrow?.funding?.paymentRequest || !canUseWebLnPayments}
+                  disabled={actionLoading || !currentBondEscrow.funding?.paymentRequest}
                   onClick={handlePayBond}
                   type="button"
                 >
-                  {hasWebLn ? "Pay my bond" : "Pay my bond from Polar"}
+                  Pay my bond from Polar
                 </button>
                 <button
                   className="secondary-button"
@@ -1607,49 +1122,34 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {isJoinedHunter && usesTorrentHashDelivery && activeContract?.state === "DELIVERY_IN_PROGRESS" ? (
+          {isActiveHunter && activeContract?.state === "DELIVERY_IN_PROGRESS" ? (
             <div className="protocol-subsection">
               <div className="panel-head">
-                <p className="eyebrow">Seed</p>
-                <h3>Commit the file hash and start seeding</h3>
+                <p className="eyebrow">Hunter delivery</p>
+                <h3>Seed the recovered file</h3>
               </div>
               <p className="muted-copy">
-                Load the recovered file, send its SHA-256 commitment to the backend, then seed the exact torrent payload to the requester over WebTorrent.
+                Load the recovered file, commit its SHA-256 to the backend, then seed it over WebTorrent to the requester.
               </p>
               <label className="field">
                 <span>Recovered content file</span>
                 <input accept="*" onChange={handleContentFileSelect} type="file" />
               </label>
               {contentFileName ? <p className="muted-copy">Loaded: {contentFileName}</p> : null}
-              {activeContract.hunterDeliveryFileSha256 ? (
-                <div className="protocol-list">
-                  <div className="protocol-card is-active">
-                    <span>Committed hash</span>
-                    <strong>{activeContract.deliveryHashStatus}</strong>
-                    <small>{activeContract.hunterDeliveryFileSha256}</small>
-                  </div>
+              <div className="detail-grid protocol-detail-grid">
+                <div>
+                  <span>Status</span>
+                  <strong>{deliverySeedStatus.phase}</strong>
                 </div>
-              ) : null}
-              {deliverySeedStatus.phase !== "idle" ? (
-                <div className="detail-grid protocol-detail-grid">
-                  <div>
-                    <span>Seed status</span>
-                    <strong>{deliverySeedStatus.phase}</strong>
-                  </div>
-                  <div>
-                    <span>Peers</span>
-                    <strong>{deliverySeedStatus.peers}</strong>
-                  </div>
-                  <div>
-                    <span>Uploaded</span>
-                    <strong>{deliverySeedStatus.uploadedBytes.toLocaleString()} bytes</strong>
-                  </div>
-                  <div>
-                    <span>Info hash</span>
-                    <strong>{deliverySeedStatus.infoHash ?? "pending"}</strong>
-                  </div>
+                <div>
+                  <span>Peers</span>
+                  <strong>{deliverySeedStatus.peers}</strong>
                 </div>
-              ) : null}
+                <div>
+                  <span>Uploaded</span>
+                  <strong>{deliverySeedStatus.uploadedBytes.toLocaleString()} bytes</strong>
+                </div>
+              </div>
               <div className="button-row">
                 <button
                   className="primary-button"
@@ -1657,48 +1157,39 @@ export default function BountyDetailPage() {
                   onClick={handleCommitDeliveryHashAndSeed}
                   type="button"
                 >
-                  {activeContract.hunterDeliveryFileSha256 ? "Recommit hash and reseed" : "Commit hash and start seeding"}
+                  Commit hash and start seeding
                 </button>
               </div>
             </div>
           ) : null}
 
-          {isCreator && usesTorrentHashDelivery && activeContract?.state === "DELIVERY_IN_PROGRESS" ? (
+          {isActiveRequester && activeContract?.state === "DELIVERY_IN_PROGRESS" ? (
             <div className="protocol-subsection">
               <div className="panel-head">
-                <p className="eyebrow">Download</p>
-                <h3>Download from the hunter and confirm the SHA-256</h3>
+                <p className="eyebrow">Requester delivery</p>
+                <h3>Download and verify the recovered file</h3>
               </div>
               <p className="muted-copy">
-                Once the hunter commits a file hash, start the WebTorrent download. The browser will hash the completed file and submit the result to the contract automatically.
+                Download the file from the hunter over WebTorrent. The browser will hash it and send the SHA-256 back to the backend for final settlement.
               </p>
               <div className="detail-grid protocol-detail-grid">
                 <div>
-                  <span>Hunter hash</span>
-                  <strong>{activeContract.hunterDeliveryFileSha256 ? "Committed" : "Waiting"}</strong>
+                  <span>Status</span>
+                  <strong>{deliveryDownloadStatus.phase}</strong>
                 </div>
                 <div>
-                  <span>Download status</span>
-                  <strong>{deliveryDownloadStatus.phase}</strong>
+                  <span>Peers</span>
+                  <strong>{deliveryDownloadStatus.peers}</strong>
                 </div>
                 <div>
                   <span>Progress</span>
                   <strong>{formatPercent(deliveryDownloadStatus.progress)}</strong>
                 </div>
                 <div>
-                  <span>Peers</span>
-                  <strong>{deliveryDownloadStatus.peers}</strong>
+                  <span>Downloaded</span>
+                  <strong>{deliveryDownloadStatus.downloadedBytes.toLocaleString()} bytes</strong>
                 </div>
               </div>
-              {deliveryDownloadStatus.fileSha256 ? (
-                <div className="protocol-list">
-                  <div className={`protocol-card${deliveryDownloadStatus.phase === "matched" ? " is-active" : ""}`}>
-                    <span>Requester hash</span>
-                    <strong>{deliveryDownloadStatus.phase === "matched" ? "Matched" : deliveryDownloadStatus.phase === "mismatched" ? "Mismatched" : "Computed"}</strong>
-                    <small>{deliveryDownloadStatus.fileSha256}</small>
-                  </div>
-                </div>
-              ) : null}
               <div className="button-row">
                 <button
                   className="primary-button"
@@ -1712,71 +1203,25 @@ export default function BountyDetailPage() {
             </div>
           ) : null}
 
-          {isCreator && !usesTorrentHashDelivery && activeContract?.state === "DELIVERY_IN_PROGRESS" ? (
+          {downloadedFileUrl ? (
             <div className="protocol-subsection">
               <div className="panel-head">
-                <p className="eyebrow">Receipt</p>
-                <h3>{isCreator && hasBackendDemoReceipts && currentUser?.walletType === "bitcoin" ? "Automatic delivery receipts" : "Sign the delivery receipt"}</h3>
+                <p className="eyebrow">Download</p>
+                <h3>Recovered file ready</h3>
               </div>
               <p className="muted-copy">
-                {isCreator && hasBackendDemoReceipts && currentUser?.walletType === "bitcoin"
-                  ? "Receipts are auto-signed with the requester Polar/Bitcoin wallet once delivery is live. No extra confirmation step is required in demo mode."
-                  : "Submit one signed receipt for each verified piece. This works with Nostr-signed receipts for Nostr sessions and WebLN message signatures for Lightning-signature sessions."}
+                The recovered file is stored in this browser session and can be saved locally.
               </p>
-              {outstandingReceiptPieceIndexes.length > 0 ? (
-                <div className="chip-row">
-                  {outstandingReceiptPieceIndexes.map((pieceIndex) => (
-                    <span className="chip" key={pieceIndex}>
-                      Outstanding receipt: piece {pieceIndex}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted-copy">All required receipts have already been submitted.</p>
-              )}
-              {!(isCreator && hasBackendDemoReceipts && currentUser?.walletType === "bitcoin") ? (
-                <div className="button-row">
-                  <button
-                    className="primary-button"
-                    disabled={actionLoading || outstandingReceiptPieceIndexes.length === 0 || !canSignReceipts}
-                    onClick={handleSubmitReceipts}
-                    type="button"
-                  >
-                    Sign and submit receipts
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {activeContract && String(activeContract.state).startsWith("RESOLVED_") ? (
-            <div className="protocol-subsection">
-              <div className="panel-head">
-                <p className="eyebrow">Resolved</p>
-                <h3>{activeContract.state}</h3>
+              <div className="button-row">
+                <a
+                  className="primary-button"
+                  download={requesterDownloadedFileName}
+                  href={downloadedFileUrl}
+                >
+                  Download recovered file
+                </a>
               </div>
-              <p className="muted-copy">
-                Contract resolution is complete. The protocol backend marked this bounty as {activeContract.state}.
-              </p>
-              {rewardEscrow?.settlement?.disbursement ? (
-                <div className="detail-grid protocol-detail-grid">
-                  <div>
-                    <span>Reward disbursement</span>
-                    <strong>{rewardEscrow.settlement.disbursement.status}</strong>
-                  </div>
-                  <div>
-                    <span>Escrow state</span>
-                    <strong>{rewardEscrow.status}</strong>
-                  </div>
-                </div>
-              ) : null}
             </div>
-          ) : null}
-
-          {!isParticipant ? (
-            <p className="muted-copy">
-              Join the hunt to unlock protocol actions. Requesters can also monitor the same bounty from their own wallet session.
-            </p>
           ) : null}
         </section>
       </section>

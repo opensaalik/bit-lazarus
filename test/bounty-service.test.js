@@ -23,24 +23,24 @@ test("bounty service saves torrent bounties", async () => {
     const bounty = await service.createBounty({
       bountyId: "bounty-1",
       creatorUserId: "user-creator",
-      title: "Need the last 3 pieces",
-      description: "Seed the missing pieces for a recovery torrent",
+      title: "Need archive recovery",
+      description: "Seed the file for a recovery torrent",
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
       torrentName: "archive.iso.torrent",
       rewardSats: 25_000,
-      missingPieces: [12, 15, 18, 12],
       tags: ["Linux", "Archive"],
       escrowId: "escrow-bounty-1",
       escrowStatus: "AWAITING_FUNDING",
       funding: { paymentRequest: "lnmocktestnet-example" },
+      pieceCount: 2048,
     });
 
     assert.equal(bounty.creatorUserId, "user-creator");
     assert.equal(bounty.status, "AWAITING_FUNDING");
-    assert.deepEqual(bounty.missingPieces, [12, 15, 18]);
     assert.deepEqual(bounty.tags, ["linux", "archive"]);
     assert.equal(bounty.escrowId, "escrow-bounty-1");
     assert.equal(bounty.bondAmountSats, 7500);
+    assert.equal(bounty.torrentMeta.pieceCount, 2048);
   });
 });
 
@@ -104,8 +104,8 @@ test("bounty service filters by creator and hunter", async () => {
     await service.createBounty({
       bountyId: "bounty-4",
       creatorUserId: "user-creator-a",
-      title: "Need pieces for torrent A",
-      description: "Missing pieces for torrent A",
+      title: "Need file for torrent A",
+      description: "Recover file for torrent A",
       torrentInfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       rewardSats: 3_000,
       escrowId: "escrow-bounty-4",
@@ -114,8 +114,8 @@ test("bounty service filters by creator and hunter", async () => {
     await service.createBounty({
       bountyId: "bounty-5",
       creatorUserId: "user-creator-b",
-      title: "Need pieces for torrent B",
-      description: "Missing pieces for torrent B",
+      title: "Need file for torrent B",
+      description: "Recover file for torrent B",
       torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       rewardSats: 4_000,
       escrowId: "escrow-bounty-5",

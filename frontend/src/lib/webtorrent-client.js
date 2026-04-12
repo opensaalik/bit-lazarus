@@ -45,6 +45,61 @@ export async function addTorrent(source, options = {}) {
   });
 }
 
+function normalizeLoadSource(source) {
+  if (
+    typeof Blob !== "undefined" &&
+    source instanceof Blob &&
+    typeof source.stream === "function"
+  ) {
+    return source.stream();
+  }
+
+  if (source instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(source);
+
+    return (async function* chunks() {
+      yield bytes;
+    }());
+  }
+
+  if (ArrayBuffer.isView(source)) {
+    const bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+
+    return (async function* chunks() {
+      yield bytes;
+    }());
+  }
+
+  return source;
+}
+
+export async function loadTorrentData(torrent, input) {
+  if (!torrent) {
+    throw new Error("torrent is required");
+  }
+
+  const streams = (Array.isArray(input) ? input : [input]).map((source) => normalizeLoadSource(source));
+
+  return new Promise((resolve, reject) => {
+    const handleError = (error) => {
+      torrent.removeListener("error", handleError);
+      reject(error);
+    };
+
+    torrent.once("error", handleError);
+    torrent.load(streams, (error) => {
+      torrent.removeListener("error", handleError);
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(torrent);
+    });
+  });
+}
+
 export async function seedTorrent(input, options = {}) {
   const client = await getWebTorrentClient();
 

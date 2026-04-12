@@ -1,5 +1,4 @@
 import bencode from "bencode";
-import parseTorrent from "parse-torrent";
 
 function decodeText(value) {
   if (typeof value === "string") {
@@ -40,37 +39,6 @@ function splitPieceHashes(piecesBuffer) {
 async function computeSha1Hex(bytes) {
   const digest = await crypto.subtle.digest("SHA-1", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function normalizeParsed(parsed) {
-  const pieceHashes = [];
-  if (parsed.pieces) {
-    for (let i = 0; i < parsed.pieces.length; i += 1) {
-      pieceHashes.push(parsed.pieces[i]);
-    }
-  }
-
-  const files = (parsed.files ?? []).map((file) => ({
-    name: file.name,
-    path: file.path,
-    length: file.length,
-  }));
-
-  const totalSize = parsed.length ?? files.reduce((sum, file) => sum + file.length, 0);
-
-  return {
-    infoHash: parsed.infoHash,
-    name: parsed.name ?? "Unknown torrent",
-    pieceLength: parsed.pieceLength ?? null,
-    pieceCount: pieceHashes.length,
-    pieceHashes,
-    totalSize,
-    files,
-    trackers: (parsed.announce ?? []).flat(),
-    comment: parsed.comment ?? null,
-    createdBy: parsed.createdBy ?? null,
-    source: null,
-  };
 }
 
 export function formatBytes(bytes) {
@@ -153,32 +121,13 @@ export async function parseTorrentFile(fileOrBuffer) {
   };
 }
 
-export async function parseMagnetUri(magnetUri) {
-  const trimmed = magnetUri.trim();
-  if (!trimmed.startsWith("magnet:")) {
-    throw new Error("Not a valid magnet link (must start with magnet:)");
-  }
-
-  const parsed = await parseTorrent(trimmed);
-
-  if (!parsed.infoHash) {
-    throw new Error("Could not extract info hash from magnet link");
-  }
-
-  const result = normalizeParsed(parsed);
-  result.source = "magnet";
-  return result;
-}
-
-export function isMagnetLink(text) {
-  return typeof text === "string" && text.trim().startsWith("magnet:");
-}
-
 export function torrentToBase64(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
   let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
   }
+
   return btoa(binary);
 }

@@ -7,24 +7,24 @@ import {
   useMemo,
   useState,
 } from "react";
-import { parseTorrentFile, parseMagnetUri, torrentToBase64, formatBytes } from "../lib/torrent-parser.js";
+import { formatBytes, parseTorrentFile, torrentToBase64 } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
-import { sendPaymentWithWebLn, signMessageWithWebLn } from "../lib/webln.js";
-import { getNostrPublicKey, signNostrEvent } from "../lib/nostr.js";
 
 const AppContext = createContext(null);
 
 export function useApp() {
   const value = useContext(AppContext);
+
   if (!value) {
     throw new Error("useApp must be used within AppProvider");
   }
+
   return value;
 }
 
 export function AppProvider({ children }) {
   const [health, setHealth] = useState(null);
-  const [statusMessage, setStatusMessage] = useState("Warming up the Lazarus relay...");
+  const [statusMessage, setStatusMessage] = useState("Booting the demo relay...");
   const [walletAddress, setWalletAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [challenge, setChallenge] = useState(null);
@@ -38,10 +38,6 @@ export function AppProvider({ children }) {
   const [rewardSats, setRewardSats] = useState("25000");
   const [bountyDescription, setBountyDescription] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [magnetInput, setMagnetInput] = useState("");
-  const [hasWebLn, setHasWebLn] = useState(false);
-  const [hasNostr, setHasNostr] = useState(false);
-  const [showManualLogin, setShowManualLogin] = useState(false);
 
   const refreshBounties = useCallback(async () => {
     if (!token) {
@@ -66,23 +62,6 @@ export function AppProvider({ children }) {
       .catch((error) => {
         setStatusMessage(error.message);
       });
-
-    const checkExtensions = () => {
-      setHasWebLn(typeof window.webln !== "undefined");
-      setHasNostr(typeof window.nostr !== "undefined");
-    };
-    checkExtensions();
-
-    let attempts = 0;
-    const poll = setInterval(() => {
-      checkExtensions();
-      attempts += 1;
-      if ((window.nostr && window.webln) || attempts >= 20) {
-        clearInterval(poll);
-      }
-    }, 150);
-
-    return () => clearInterval(poll);
   }, []);
 
   useEffect(() => {
@@ -99,7 +78,7 @@ export function AppProvider({ children }) {
       .then((payload) => {
         startTransition(() => {
           setCurrentUser(payload.user);
-          setStatusMessage(`Wallet session active for ${payload.user.walletAddress}`);
+          setStatusMessage(`Session active for ${payload.user.walletAddress}`);
         });
       })
       .catch((error) => {
@@ -131,7 +110,7 @@ export function AppProvider({ children }) {
       });
       setChallenge(payload.challenge);
       setSignature("");
-      setStatusMessage("Challenge issued. Sign it with your wallet or use mock mode for local development.");
+      setStatusMessage("Challenge issued. Sign it with the Polar/Bitcoin wallet, then verify the session.");
     } catch (error) {
       setStatusMessage(error.message);
     } finally {
@@ -156,7 +135,7 @@ export function AppProvider({ children }) {
       setToken(payload.session.token);
       setChallenge(null);
       setSignature("");
-      setStatusMessage(`Wallet connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
+      setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
     } catch (error) {
       setStatusMessage(error.message);
     } finally {
@@ -164,34 +143,26 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function handleWebLnConnect() {
+  async function handleDemoLogin(role) {
     setLoading(true);
 
     try {
-      const challengePayload = await requestJson("/auth/challenges", {
-        method: "POST",
-        body: { kind: "webln" },
-      });
-      const challengeRecord = challengePayload.challenge;
-      const signedMessage = await signMessageWithWebLn(challengeRecord.message);
-      const verifyPayload = await requestJson("/auth/verify", {
+      const defaultName = role === "requester" ? "Requester" : role === "hunter" ? "Hunter" : "";
+      const payload = await requestJson("/auth/demo-login", {
         method: "POST",
         body: {
-          challengeId: challengeRecord.id,
-          signature: signedMessage,
-          displayName: displayName.trim() || null,
+          role,
+          displayName: displayName || defaultName,
         },
       });
-
-      setToken(verifyPayload.session.token);
+      setToken(payload.session.token);
       setChallenge(null);
       setSignature("");
-      setWalletAddress(verifyPayload.user.walletAddress);
-      setStatusMessage(
-        `Connected via WebLN as ${verifyPayload.user.displayName ?? `${verifyPayload.user.walletAddress.slice(0, 12)}...`}`,
-      );
+      setWalletAddress(payload.user.walletAddress ?? "");
+      setDisplayName(payload.user.displayName ?? defaultName);
+      setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
     } catch (error) {
-      setStatusMessage(error.message ?? String(error));
+      setStatusMessage(error.message);
     } finally {
       setLoading(false);
     }
@@ -203,7 +174,7 @@ export function AppProvider({ children }) {
       const meta = await parseTorrentFile(arrayBuffer);
       setTorrentMeta(meta);
       setTorrentBase64(torrentToBase64(arrayBuffer));
-      setStatusMessage(`Parsed: ${meta.name} (${meta.pieceCount} pieces, ${formatBytes(meta.totalSize)})`);
+      setStatusMessage(`Parsed ${meta.name} (${meta.pieceCount} pieces, ${formatBytes(meta.totalSize)})`);
     } catch (error) {
       setStatusMessage(`Failed to parse torrent: ${error.message}`);
       setTorrentMeta(null);
@@ -215,63 +186,49 @@ export function AppProvider({ children }) {
     event.preventDefault();
     setDragOver(false);
     const file = event.dataTransfer?.files?.[0];
-    if (file) handleTorrentFile(file);
+
+    if (file) {
+      void handleTorrentFile(file);
+    }
   }
 
   function handleFileSelect(event) {
     const file = event.target.files?.[0];
-    if (file) handleTorrentFile(file);
-  }
 
-  async function handleMagnetSubmit(event) {
-    event.preventDefault();
-    if (!magnetInput.trim()) return;
-    setLoading(true);
-    try {
-      const meta = await parseMagnetUri(magnetInput);
-      setTorrentMeta(meta);
-      setTorrentBase64(null);
-      setMagnetInput("");
-      setStatusMessage(`Parsed magnet: ${meta.name} (${meta.infoHash})`);
-    } catch (error) {
-      setStatusMessage(`Invalid magnet link: ${error.message}`);
-    } finally {
-      setLoading(false);
+    if (file) {
+      void handleTorrentFile(file);
     }
   }
 
   function clearTorrent() {
     setTorrentMeta(null);
     setTorrentBase64(null);
-    setMagnetInput("");
   }
 
   async function handleCreateBounty(event, { onCreated } = {}) {
     event?.preventDefault();
+
     if (!torrentMeta) {
-      setStatusMessage("Upload a .torrent file or paste a magnet link first.");
+      setStatusMessage("Upload a .torrent file first.");
       return null;
     }
+
     setLoading(true);
 
     try {
       const sats = Number.parseInt(rewardSats, 10);
-      const allPieces = torrentMeta.pieceCount > 0
-        ? Array.from({ length: torrentMeta.pieceCount }, (_, i) => i)
-        : [];
 
       const payload = await requestJson("/bounties", {
         method: "POST",
         token,
         body: {
           title: torrentMeta.name,
-          description: bountyDescription || `Bounty for dead torrent: ${torrentMeta.name}`,
+          description: bountyDescription || `Bounty for ${torrentMeta.name}`,
           torrentInfoHash: torrentMeta.infoHash,
           torrentName: torrentMeta.name,
           rewardSats: sats,
-          missingPieces: allPieces,
-          tags: ["resurrection"],
-          torrentFileBase64: torrentBase64 ?? undefined,
+          tags: ["demo"],
+          torrentFileBase64: torrentBase64,
           pieceCount: torrentMeta.pieceCount || undefined,
           pieceLength: torrentMeta.pieceLength ?? undefined,
           totalSize: torrentMeta.totalSize || undefined,
@@ -281,39 +238,22 @@ export function AppProvider({ children }) {
 
       const bounty = payload.bounty;
       setBounties((currentBounties) => [bounty, ...currentBounties]);
-      setStatusMessage("Bounty created! Funding escrow...");
 
-      if (bounty.funding?.paymentRequest && window.webln) {
-        try {
-          const payment = await sendPaymentWithWebLn(bounty.funding.paymentRequest, { timeoutMs: 5000 });
-          setStatusMessage(payment.timedOut ? "Funding request sent. Syncing escrow state..." : "Payment sent! Syncing escrow...");
-          const syncPayload = await requestJson(`/bounties/${bounty.id}/sync-escrow`, {
-            method: "POST",
-            token,
-          });
-          setBounties((cur) => cur.map((b) => (b.id === bounty.id ? syncPayload.bounty : b)));
-          setStatusMessage(`Bounty "${bounty.title}" is live!`);
-        } catch (payError) {
-          setStatusMessage(`Bounty created but funding skipped: ${payError.message}. You can fund it later.`);
-        }
-      } else if (bounty.funding?.paymentRequest && health?.demoCapabilities?.backendPayments) {
-        try {
-          const demoPayload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
-            method: "POST",
-            token,
-          });
-          setBounties((cur) => cur.map((b) => (b.id === bounty.id ? demoPayload.bounty : b)));
-          setStatusMessage(`Bounty "${bounty.title}" is live via Polar demo funding.`);
-        } catch (payError) {
-          setStatusMessage(`Bounty created but demo funding failed: ${payError.message}. You can fund it later.`);
-        }
+      if (bounty.funding?.paymentRequest) {
+        const demoPayload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
+          method: "POST",
+          token,
+        });
+        setBounties((currentBounties) =>
+          currentBounties.map((record) => (record.id === bounty.id ? demoPayload.bounty : record)),
+        );
+        setStatusMessage(`Bounty "${bounty.title}" is live via Polar demo funding.`);
       } else {
-        setStatusMessage(`Bounty created with escrow ${bounty.escrowId}. Fund it to go live.`);
+        setStatusMessage(`Bounty "${bounty.title}" created.`);
       }
 
       setTorrentMeta(null);
       setTorrentBase64(null);
-      setMagnetInput("");
       setRewardSats("25000");
       setBountyDescription("");
 
@@ -369,59 +309,16 @@ export function AppProvider({ children }) {
   }
 
   const mergeBounty = useCallback((bounty) => {
-    setBounties((current) => {
-      const index = current.findIndex((b) => b.id === bounty.id);
+    setBounties((currentBounties) => {
+      const index = currentBounties.findIndex((record) => record.id === bounty.id);
+
       if (index === -1) {
-        return [bounty, ...current];
+        return [bounty, ...currentBounties];
       }
 
-      return current.map((b) => (b.id === bounty.id ? bounty : b));
+      return currentBounties.map((record) => (record.id === bounty.id ? bounty : record));
     });
   }, []);
-
-  async function handleAlbyConnect() {
-    setLoading(true);
-
-    try {
-      const pubkey = await getNostrPublicKey();
-
-      const challengePayload = await requestJson("/auth/challenges", {
-        method: "POST",
-        body: { kind: "nostr" },
-      });
-
-      const ch = challengePayload.challenge;
-      const eventTemplate = {
-        kind: 22242,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [["challenge", ch.id]],
-        content: ch.message,
-      };
-
-      const signedEvent = await signNostrEvent(eventTemplate);
-
-      const verifyPayload = await requestJson("/auth/verify", {
-        method: "POST",
-        body: {
-          challengeId: ch.id,
-          signedEvent,
-          displayName: displayName.trim() || null,
-        },
-      });
-
-      setToken(verifyPayload.session.token);
-      setChallenge(null);
-      setSignature("");
-      setWalletAddress(pubkey);
-      setStatusMessage(
-        `Connected via Nostr as ${verifyPayload.user.displayName ?? `${pubkey.slice(0, 12)}...`}`,
-      );
-    } catch (error) {
-      setStatusMessage(error.message ?? String(error));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleFundEscrow(bounty) {
     if (!bounty.funding?.paymentRequest) {
@@ -432,35 +329,14 @@ export function AppProvider({ children }) {
     setLoading(true);
 
     try {
-      if (window.webln) {
-        const payment = await sendPaymentWithWebLn(bounty.funding.paymentRequest, { timeoutMs: 5000 });
-        setStatusMessage(payment.timedOut ? "Funding request sent. Syncing escrow state..." : "Payment sent! Syncing escrow state...");
-      } else if (health?.demoCapabilities?.backendPayments) {
-        const payload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
-          method: "POST",
-          token,
-        });
-        setBounties((currentBounties) =>
-          currentBounties.map((b) => (b.id === bounty.id ? payload.bounty : b)),
-        );
-        setStatusMessage(`Escrow funded for bounty "${bounty.title}" via Polar demo.`);
-        setLoading(false);
-        return;
-      } else {
-        await navigator.clipboard.writeText(bounty.funding.paymentRequest);
-        setStatusMessage("Invoice copied to clipboard. Pay it with any Lightning wallet, then sync.");
-        setLoading(false);
-        return;
-      }
-
-      const payload = await requestJson(`/bounties/${bounty.id}/sync-escrow`, {
+      const payload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
         method: "POST",
         token,
       });
       setBounties((currentBounties) =>
-        currentBounties.map((b) => (b.id === bounty.id ? payload.bounty : b)),
+        currentBounties.map((record) => (record.id === bounty.id ? payload.bounty : record)),
       );
-      setStatusMessage(`Escrow funded for bounty "${bounty.title}".`);
+      setStatusMessage(`Escrow funded for bounty "${bounty.title}" via Polar demo.`);
     } catch (error) {
       setStatusMessage(error.message);
     } finally {
@@ -484,7 +360,7 @@ export function AppProvider({ children }) {
       // Clear the local session even if the server-side token is already gone.
     } finally {
       setToken("");
-      setStatusMessage("Disconnected wallet session.");
+      setStatusMessage("Disconnected session.");
       setLoading(false);
     }
   }
@@ -520,34 +396,23 @@ export function AppProvider({ children }) {
     bounties,
     setBounties,
     loading,
-    setLoading,
     torrentMeta,
-    torrentBase64,
     rewardSats,
     setRewardSats,
     bountyDescription,
     setBountyDescription,
     dragOver,
     setDragOver,
-    magnetInput,
-    setMagnetInput,
-    hasWebLn,
-    hasNostr,
-    showManualLogin,
-    setShowManualLogin,
     refreshBounties,
     handleChallengeRequest,
     handleVerify,
-    handleWebLnConnect,
-    handleTorrentFile,
+    handleDemoLogin,
     handleDrop,
     handleFileSelect,
-    handleMagnetSubmit,
     clearTorrent,
     handleCreateBounty,
     handleHuntBounty,
     handleSyncBounty,
-    handleAlbyConnect,
     handleFundEscrow,
     handleLogout,
     mergeBounty,

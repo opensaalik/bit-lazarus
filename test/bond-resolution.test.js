@@ -2,12 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { EscrowService } from "../src/escrow-service.js";
 import { MockLightningClient } from "../src/lightning-client.js";
 import { ProtocolService } from "../src/protocol-service.js";
-import { MockWalletAuthVerifier } from "../src/wallet-auth-verifier.js";
 
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-bond-"));
@@ -26,18 +24,15 @@ async function setupServices(tempDir) {
   });
   await escrowService.init();
 
-  const verifier = new MockWalletAuthVerifier();
   const protocolService = new ProtocolService({
     dataDir: path.join(tempDir, "protocol"),
-    verifier,
     escrowService,
     bondDeadlineMs: 500,
     deliveryDeadlineMs: 1000,
-    receiptDeadlineMs: 500,
   });
   await protocolService.init();
 
-  return { lightningClient, escrowService, protocolService, verifier };
+  return { lightningClient, escrowService, protocolService };
 }
 
 async function createContractWithBonds(tempDir) {
@@ -50,34 +45,12 @@ async function createContractWithBonds(tempDir) {
     amountSats: 10_000,
   });
 
-  const session = await protocolService.createVerificationSession({
-    bountyId: "b1",
-    payerUserId: "payer",
-    hunterUserId: "hunter",
-    pieceIndexes: [0, 1, 2],
-    torrentInfoHash: "a".repeat(40),
-  });
-
-  await protocolService.submitProofArtifacts({
-    sessionId: session.id,
-    hunterUserId: "hunter",
-    proofArtifacts: { proofs: [{ pieceIndex: 0 }, { pieceIndex: 1 }, { pieceIndex: 2 }] },
-  });
-
-  await protocolService.markProofVerified({
-    sessionId: session.id,
-    payerUserId: "payer",
-    verifiedPieceIndexes: [0, 1, 2],
-  });
-
   const contract = await protocolService.createDeliveryContract({
-    sessionId: session.id,
     bountyId: "b1",
     payerUserId: "payer",
     hunterUserId: "hunter",
     payerWalletAddress: "payer-wallet",
     hunterWalletAddress: "hunter-wallet",
-    pieceIndexes: [0, 1, 2],
     rewardEscrowId: rewardEscrow.id,
   });
 

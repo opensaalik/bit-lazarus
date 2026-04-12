@@ -32,12 +32,6 @@ export default function MainNav() {
         >
           New bounty
         </NavLink>
-        <NavLink
-          className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
-          to="/activity"
-        >
-          My activity
-        </NavLink>
       </nav>
       <div className="main-nav-session">
         {token && currentUser ? (

@@ -13,12 +13,9 @@ export default function CreateBountyPage() {
     setBountyDescription,
     dragOver,
     setDragOver,
-    magnetInput,
-    setMagnetInput,
     handleCreateBounty,
     handleDrop,
     handleFileSelect,
-    handleMagnetSubmit,
     clearTorrent,
     formatBytes,
   } = useApp();
@@ -39,8 +36,8 @@ export default function CreateBountyPage() {
           <h2>Resurrect a dead torrent</h2>
         </div>
         <p className="muted-copy">
-          Parse a magnet or .torrent, set a Lightning reward, then fund the escrow. You will jump to the bounty
-          page when it is created.
+          Upload a real .torrent file, set the reward, then let the server fund the requester escrow from Polar.
+          You will jump to the bounty page when it is created.
         </p>
 
         <form className="bounty-form" onSubmit={onSubmit}>
@@ -52,7 +49,7 @@ export default function CreateBountyPage() {
                   x
                 </button>
               </div>
-              <span className="chip">{torrentMeta.source === "magnet" ? "Magnet link" : ".torrent file"}</span>
+              <span className="chip">.torrent file</span>
               <div className="detail-grid">
                 <div>
                   <span>Info hash</span>
@@ -121,26 +118,6 @@ export default function CreateBountyPage() {
                   <p className="muted-copy">or click to browse</p>
                 </div>
               </div>
-              <div className="input-divider">
-                <span>or</span>
-              </div>
-              <div className="magnet-input-row">
-                <input
-                  type="text"
-                  value={magnetInput}
-                  onChange={(e) => setMagnetInput(e.target.value)}
-                  placeholder="magnet:?xt=urn:btih:..."
-                  className="magnet-field"
-                />
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={loading || !magnetInput.trim()}
-                  onClick={handleMagnetSubmit}
-                >
-                  Parse
-                </button>
-              </div>
             </div>
           )}
 
@@ -176,7 +153,7 @@ export default function CreateBountyPage() {
             disabled={!token || loading || !torrentMeta}
             type="submit"
           >
-            {torrentMeta ? "Create & Fund Bounty" : "Upload .torrent or paste magnet link"}
+            {torrentMeta ? "Create & Fund Bounty" : "Upload .torrent file"}
           </button>
         </form>
       </section>

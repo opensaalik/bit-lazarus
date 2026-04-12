@@ -381,19 +381,9 @@ export class LndRestLightningClient {
 }
 
 export function createLightningClientFromEnv(environment = process.env) {
-  const backend = environment.LIGHTNING_BACKEND ?? "mock";
-
-  if (backend === "mock") {
-    return new MockLightningClient();
-  }
-
-  if (backend === "lnd-rest") {
-    return new LndRestLightningClient({
-      baseUrl: environment.LIGHTNING_LND_REST_URL,
-      macaroonHex: environment.LIGHTNING_LND_MACAROON_HEX,
-      rejectUnauthorized: environment.LIGHTNING_LND_TLS_SKIP_VERIFY !== "1",
-    });
-  }
-
-  throw new Error(`unsupported lightning backend: ${backend}`);
+  return new LndRestLightningClient({
+    baseUrl: environment.LIGHTNING_LND_REST_URL,
+    macaroonHex: environment.LIGHTNING_LND_MACAROON_HEX,
+    rejectUnauthorized: environment.LIGHTNING_LND_TLS_SKIP_VERIFY !== "1",
+  });
 }

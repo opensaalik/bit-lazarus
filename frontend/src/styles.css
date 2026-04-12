@@ -310,10 +310,6 @@ input::placeholder {
   border-radius: 0;
 }
 
-.activity-main .bounty-card.empty {
-  min-height: 120px;
-}
-
 a.primary-button,
 a.secondary-button {
   display: inline-flex;
@@ -763,17 +759,6 @@ a.secondary-button {
   flex: 1;
   height: 1px;
   background: rgba(255, 255, 255, 0.1);
-}
-
-.magnet-input-row {
-  display: flex;
-  gap: 8px;
-}
-
-.magnet-field {
-  flex: 1;
-  font-family: monospace;
-  font-size: 0.85rem;
 }
 
 .torrent-preview {

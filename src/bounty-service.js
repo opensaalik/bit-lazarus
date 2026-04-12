@@ -27,26 +27,6 @@ function assertPositiveInteger(value, fieldName) {
   }
 }
 
-function normalizeMissingPieces(missingPieces) {
-  if (missingPieces === undefined) {
-    return [];
-  }
-
-  if (!Array.isArray(missingPieces)) {
-    throw new Error("missingPieces must be an array");
-  }
-
-  return [...new Set(
-    missingPieces.map((pieceIndex) => {
-      if (!Number.isInteger(pieceIndex) || pieceIndex < 0) {
-        throw new Error("missingPieces must contain non-negative integers");
-      }
-
-      return pieceIndex;
-    }),
-  )].sort((left, right) => left - right);
-}
-
 function normalizeTags(tags) {
   if (tags === undefined) {
     return [];
@@ -172,7 +152,6 @@ export class BountyService {
     torrentInfoHash,
     torrentName = null,
     rewardSats,
-    missingPieces = [],
     tags = [],
     escrowId,
     escrowStatus = "AWAITING_FUNDING",
@@ -182,7 +161,6 @@ export class BountyService {
     pieceLength = null,
     totalSize = null,
     files = null,
-    deliveryVerificationMode = "torrent-hash",
   }) {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
@@ -200,7 +178,6 @@ export class BountyService {
       await this.storeTorrentFile(normalizedInfoHash, torrentFileBase64);
     }
 
-    const normalizedMissingPieces = normalizeMissingPieces(missingPieces);
     const bondAmountSats = this.computeBondAmount(rewardSats);
     const timestamp = this.now();
     const bounty = {
@@ -212,11 +189,8 @@ export class BountyService {
       torrentName: normalizeOptionalString(torrentName, "torrentName"),
       rewardSats,
       bondAmountSats,
-      missingPieces: normalizedMissingPieces,
       tags: normalizeTags(tags),
       status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
-      verificationMode: "manual",
-      deliveryVerificationMode,
       deliveryStatus: "IDLE",
       completionReadiness: "PENDING",
       createdAt: timestamp,
@@ -226,12 +200,11 @@ export class BountyService {
       funding,
       hasTorrentFile: !!torrentFileBase64,
       torrentMeta: {
-        pieceCount: pieceCount ?? normalizedMissingPieces.length,
+        pieceCount: pieceCount ?? null,
         pieceLength: pieceLength ?? null,
         totalSize: totalSize ?? null,
         files: files ?? null,
       },
-      verificationSessionIds: [],
       activeContractIds: [],
       hunters: [],
     };
@@ -290,21 +263,6 @@ export class BountyService {
     return bounty;
   }
 
-  async registerVerificationSession({ bountyId, verificationSessionId }) {
-    assertString(bountyId, "bountyId");
-    assertString(verificationSessionId, "verificationSessionId");
-
-    const bounty = this.requireBounty(bountyId);
-
-    if (!bounty.verificationSessionIds.includes(verificationSessionId)) {
-      bounty.verificationSessionIds.push(verificationSessionId);
-      bounty.updatedAt = this.now();
-      await this.persist();
-    }
-
-    return bounty;
-  }
-
   async registerDeliveryContract({ bountyId, contractId }) {
     assertString(bountyId, "bountyId");
     assertString(contractId, "contractId");
@@ -313,7 +271,7 @@ export class BountyService {
 
     if (!bounty.activeContractIds.includes(contractId)) {
       bounty.activeContractIds.push(contractId);
-      bounty.deliveryStatus = "CONTRACT_PENDING";
+      bounty.deliveryStatus = "BOND_PENDING";
       bounty.updatedAt = this.now();
       await this.persist();
     }

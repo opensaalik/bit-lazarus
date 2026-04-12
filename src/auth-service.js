@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { recoverLightningSignMessagePubkey, verifyNostrEvent } from "./wallet-auth-verifier.js";
 
 function assertString(value, fieldName) {
   if (!value || typeof value !== "string") {
@@ -73,56 +72,10 @@ export class AuthService {
     }
   }
 
-  async issueChallenge({ walletAddress, kind = "bitcoin" } = {}) {
+  async issueChallenge({ walletAddress } = {}) {
     const now = this.now();
     const id = crypto.randomUUID();
     const nonceBytes = crypto.randomBytes(16).toString("hex");
-
-    if (kind === "webln") {
-      const challenge = {
-        id,
-        kind: "webln",
-        walletAddress: null,
-        nonce: nonceBytes,
-        message: [
-          "Bit Lazarus wallet login (WebLN)",
-          `Challenge ID: ${id}`,
-          `Nonce: ${nonceBytes}`,
-          `Issued At: ${now.toISOString()}`,
-        ].join("\n"),
-        expiresAt: new Date(now.getTime() + this.challengeTtlMs).toISOString(),
-        createdAt: now.toISOString(),
-      };
-
-      this.challenges.set(challenge.id, challenge);
-      await this.persist();
-      return challenge;
-    }
-
-    if (kind === "nostr") {
-      const challenge = {
-        id,
-        kind: "nostr",
-        walletAddress: null,
-        nonce: nonceBytes,
-        message: [
-          "Bit Lazarus wallet login (Nostr)",
-          `Challenge ID: ${id}`,
-          `Nonce: ${nonceBytes}`,
-          `Issued At: ${now.toISOString()}`,
-        ].join("\n"),
-        expiresAt: new Date(now.getTime() + this.challengeTtlMs).toISOString(),
-        createdAt: now.toISOString(),
-      };
-
-      this.challenges.set(challenge.id, challenge);
-      await this.persist();
-      return challenge;
-    }
-
-    if (kind !== "bitcoin") {
-      throw new Error("challenge kind must be bitcoin, webln, or nostr");
-    }
 
     const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
     const challenge = {
@@ -145,7 +98,7 @@ export class AuthService {
     return challenge;
   }
 
-  async verifyChallenge({ challengeId, walletAddress, signature, signedEvent, displayName = null }) {
+  async verifyChallenge({ challengeId, walletAddress, signature, displayName = null }) {
     assertString(challengeId, "challengeId");
 
     const challenge = this.challenges.get(challengeId);
@@ -160,66 +113,27 @@ export class AuthService {
       throw new Error("challenge expired");
     }
 
-    let normalizedWalletAddress;
-    let walletType;
+    assertString(signature, "signature");
+    assertString(walletAddress, "walletAddress");
+    const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
 
-    if (challenge.kind === "nostr") {
-      if (!signedEvent || typeof signedEvent !== "object") {
-        throw new Error("signedEvent is required for nostr challenges");
-      }
+    if (challenge.walletAddress !== normalizedWalletAddress) {
+      throw new Error("walletAddress does not match challenge");
+    }
 
-      if (signedEvent.content !== challenge.message) {
-        throw new Error("signed event content does not match challenge");
-      }
+    const verification = await this.verifier.verifySignature({
+      walletAddress: normalizedWalletAddress,
+      message: challenge.message,
+      signature,
+    });
 
-      const challengeTag = (signedEvent.tags ?? []).find((t) => t[0] === "challenge");
-      if (!challengeTag || challengeTag[1] !== challengeId) {
-        throw new Error("signed event challenge tag does not match");
-      }
-
-      const verifiedPubkey = verifyNostrEvent(signedEvent);
-
-      if (!verifiedPubkey) {
-        throw new Error("invalid nostr event signature");
-      }
-
-      normalizedWalletAddress = verifiedPubkey;
-      walletType = "nostr";
-    } else if (challenge.kind === "webln") {
-      assertString(signature, "signature");
-      const recoveredPub = recoverLightningSignMessagePubkey(challenge.message, signature);
-
-      if (!recoveredPub) {
-        throw new Error("invalid wallet signature");
-      }
-
-      normalizedWalletAddress = recoveredPub;
-      walletType = "webln";
-    } else {
-      assertString(signature, "signature");
-      assertString(walletAddress, "walletAddress");
-      normalizedWalletAddress = normalizeWalletAddress(walletAddress);
-
-      if (challenge.walletAddress !== normalizedWalletAddress) {
-        throw new Error("walletAddress does not match challenge");
-      }
-
-      const verification = await this.verifier.verifySignature({
-        walletAddress: normalizedWalletAddress,
-        message: challenge.message,
-        signature,
-      });
-
-      if (!verification.valid) {
-        throw new Error("invalid wallet signature");
-      }
-
-      walletType = verification.walletType ?? "bitcoin";
+    if (!verification.valid) {
+      throw new Error("invalid wallet signature");
     }
     const user = await this.findOrCreateUser({
       walletAddress: normalizedWalletAddress,
       displayName,
-      walletType,
+      walletType: "bitcoin",
     });
     const session = {
       token: crypto.randomBytes(32).toString("hex"),
