@@ -26,6 +26,13 @@ export default function HomePage() {
   return (
     <main className="page-main">
       <section className="glass-panel stack">
+        <div className="hero-logo-lockup">
+          <img
+            alt="Bit Lazarus"
+            className="hero-logo-image"
+            src="/bit-lazarus-logo.svg"
+          />
+        </div>
         <div className="panel-head">
           <p className="eyebrow">Bit Lazarus Demo</p>
           <h1>Recover a dead torrent with Polar-backed escrow</h1>

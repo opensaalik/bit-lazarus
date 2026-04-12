@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 260" fill="none">
+  <rect width="960" height="260" fill="black"/>
+  <g transform="translate(24 24)">
+    <rect x="0.5" y="0.5" width="211" height="211" rx="105.5" fill="#090916"/>
+    <rect x="0.5" y="0.5" width="211" height="211" rx="105.5" stroke="#C77C14"/>
+    <ellipse cx="78" cy="70" rx="63" ry="41" fill="#231534" opacity="0.95"/>
+    <ellipse cx="126" cy="97" rx="56" ry="38" fill="#152238" opacity="0.85"/>
+    <path d="M54 69C66 53 80 53 92 69C104 85 119 85 131 69C143 53 157 53 168 63" stroke="#F49B1D" stroke-width="8" stroke-linecap="round"/>
+    <path d="M54 90C66 74 80 74 92 90C104 106 119 106 131 90C143 74 157 74 168 84" stroke="#F49B1D" stroke-width="8" stroke-linecap="round"/>
+    <path d="M110 57C105.6 57 102 60.6 102 65V79C102 83.4 105.6 87 110 87C114.4 87 118 83.4 118 79V65C118 60.6 114.4 57 110 57Z" stroke="#7E65C9" stroke-width="3"/>
+    <path d="M100 73H120" stroke="#7E65C9" stroke-width="3" stroke-linecap="round"/>
+    <path d="M87 109C82 137 88 165 85 205" stroke="#B16D12" stroke-width="3" stroke-linecap="round"/>
+    <path d="M106 111C111 138 106 164 113 205" stroke="#6A59B8" stroke-width="3" stroke-linecap="round"/>
+    <path d="M124 108C119 135 123 164 121 205" stroke="#C77C14" stroke-width="3" stroke-linecap="round"/>
+    <path d="M145 110C151 139 141 165 146 205" stroke="#6A59B8" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="43" cy="43" r="4" fill="#FFD7A4"/>
+    <circle cx="69" cy="34" r="4" fill="#EDE6FF"/>
+    <circle cx="161" cy="40" r="4" fill="#EDE6FF"/>
+    <circle cx="181" cy="48" r="4" fill="#FFD7A4"/>
+  </g>
+  <g transform="translate(290 78)">
+    <text x="0" y="66" fill="#F49B1D" font-family="Space Grotesk, Segoe UI, sans-serif" font-size="78" font-weight="700">Bit</text>
+    <text x="134" y="66" fill="#F5EEE2" font-family="Space Grotesk, Segoe UI, sans-serif" font-size="78" font-weight="700">Lazarus</text>
+    <text x="2" y="118" fill="#D7D0C6" font-family="IBM Plex Mono, monospace" font-size="28" font-weight="500" letter-spacing="9">RESURRECT DEAD TORRENTS</text>
+  </g>
+</svg>

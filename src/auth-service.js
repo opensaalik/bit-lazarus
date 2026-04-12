@@ -252,6 +252,7 @@ export class AuthService {
   }
 
   async persist() {
+    await mkdir(this.dataDir, { recursive: true });
     await writeFile(
       this.statePath,
       JSON.stringify(

@@ -91,18 +91,24 @@ input::placeholder {
 
 .main-nav-brand {
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .main-nav-logo {
-  font-weight: 700;
-  font-size: 1.15rem;
-  color: #f5eee2;
+  display: inline-flex;
+  align-items: center;
   text-decoration: none;
-  letter-spacing: -0.02em;
+  max-width: min(100%, 340px);
 }
 
 .main-nav-logo:hover {
-  color: #ffb160;
+  opacity: 0.92;
+}
+
+.main-nav-logo-image {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .main-nav-links {
@@ -183,6 +189,19 @@ input::placeholder {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.hero-logo-lockup {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  min-width: 0;
+}
+
+.hero-logo-image {
+  display: block;
+  width: min(100%, 560px);
+  height: auto;
 }
 
 .home-cta {
@@ -905,11 +924,19 @@ a.secondary-button {
     align-items: stretch;
   }
 
+  .main-nav-logo {
+    max-width: min(100%, 280px);
+  }
+
   .main-nav-links {
     justify-content: center;
   }
 
   .main-nav-session {
     justify-content: space-between;
+  }
+
+  .hero-logo-image {
+    width: min(100%, 420px);
   }
 }

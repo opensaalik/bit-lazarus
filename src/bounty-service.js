@@ -308,6 +308,8 @@ export class BountyService {
   }
 
   async persist() {
+    await mkdir(this.dataDir, { recursive: true });
+    await mkdir(this.torrentsDir, { recursive: true });
     await writeFile(
       this.statePath,
       JSON.stringify(

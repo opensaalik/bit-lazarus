@@ -13,7 +13,11 @@ export default function MainNav() {
     <header className="main-nav glass-panel">
       <div className="main-nav-brand">
         <NavLink className="main-nav-logo" end to="/">
-          Bit Lazarus
+          <img
+            alt="Bit Lazarus"
+            className="main-nav-logo-image"
+            src="/bit-lazarus-logo.svg"
+          />
         </NavLink>
       </div>
       <nav className="main-nav-links" aria-label="Primary">
