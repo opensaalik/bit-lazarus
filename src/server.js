@@ -50,7 +50,7 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   const app = express();
   const frontendDistPath = path.resolve("dist");
 
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
   app.use(async (request, _response, next) => {
     try {
       const token = getBearerToken(request);
@@ -74,8 +74,11 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   });
 
   app.post("/auth/challenges", async (request, response) => {
+    const requestedKind = request.body?.kind;
+    const kind = requestedKind === "webln" ? "webln" : requestedKind === "nostr" ? "nostr" : "bitcoin";
     const challenge = await authService.issueChallenge({
       walletAddress: request.body?.walletAddress,
+      kind,
     });
     response.status(201).json({ challenge });
   });
@@ -173,7 +176,8 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   });
 
   app.post("/bounties", requireAuth, async (request, response) => {
-    const requestedBountyId = request.body?.bountyId;
+    const body = request.body ?? {};
+    const requestedBountyId = body.bountyId;
     const bountyId =
       typeof requestedBountyId === "string" && requestedBountyId.trim()
         ? requestedBountyId.trim()
@@ -182,16 +186,16 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       escrowId: `escrow-${bountyId}`,
       buyerId: request.auth.user.id,
       sellerId: `bounty:${bountyId}`,
-      amountSats: request.body?.rewardSats,
-      description: request.body?.title ?? "Torrent bounty escrow",
+      amountSats: body.rewardSats,
+      description: body.title ?? "Torrent bounty escrow",
       metadata: {
         kind: "bounty",
         bountyId,
-        torrentInfoHash: request.body?.torrentInfoHash,
+        torrentInfoHash: body.torrentInfoHash,
       },
     });
     const bounty = await bountyService.createBounty({
-      ...(request.body ?? {}),
+      ...body,
       bountyId,
       creatorUserId: request.auth.user.id,
       escrowId: escrow.id,
@@ -199,6 +203,22 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       funding: escrow.funding,
     });
     response.status(201).json({ bounty });
+  });
+
+  app.get("/bounties/:bountyId/torrent", requireAuth, async (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+    const fileBuffer = await bountyService.getTorrentFile(bounty.torrentInfoHash);
+    if (!fileBuffer) {
+      response.status(404).json({ error: "torrent file not available for this bounty" });
+      return;
+    }
+    response.set("Content-Type", "application/x-bittorrent");
+    response.set("Content-Disposition", `attachment; filename="${bounty.torrentInfoHash}.torrent"`);
+    response.send(fileBuffer);
   });
 
   app.get("/bounties/:bountyId", requireAuth, (request, response) => {
@@ -413,11 +433,21 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       pieceIndexes: request.body?.pieceIndexes ?? verificationSession.verifiedPieceIndexes,
       rewardEscrowId: bounty.escrowId,
     });
+
+    const bondResult = await protocolService.createBondEscrows({
+      contractId: contract.id,
+      bondAmountSats: bounty.bondAmountSats,
+    });
+
     await bountyService.registerDeliveryContract({
       bountyId: bounty.id,
       contractId: contract.id,
     });
-    response.status(201).json({ contract });
+    response.status(201).json({
+      contract: bondResult.contract,
+      payerBondEscrow: bondResult.payerBondEscrow,
+      hunterBondEscrow: bondResult.hunterBondEscrow,
+    });
   });
 
   app.get("/contracts/:contractId", requireAuth, (request, response) => {
@@ -457,6 +487,24 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
       payerBondStatus: request.body?.payerBondStatus,
       hunterBondStatus: request.body?.hunterBondStatus,
     });
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+    });
+    response.json({ contract: updatedContract });
+  });
+
+  app.post("/contracts/:contractId/sync-bonds", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+    const updatedContract = await protocolService.syncBondStatus({ contractId: contract.id });
     await bountyService.updateProtocolState({
       bountyId: updatedContract.bountyId,
       deliveryStatus: updatedContract.state,
@@ -630,11 +678,6 @@ export async function startServer({
     verifier: authVerifier,
   });
   await authService.init();
-  const protocolService = new ProtocolService({
-    dataDir: path.join(dataDir, "protocol"),
-    verifier: authVerifier,
-  });
-  await protocolService.init();
   const lightningClient = createLightningClientFromEnv(process.env);
   const bountyService = new BountyService({
     dataDir: path.join(dataDir, "bounties"),
@@ -645,6 +688,12 @@ export async function startServer({
     lightningClient,
   });
   await escrowService.init();
+  const protocolService = new ProtocolService({
+    dataDir: path.join(dataDir, "protocol"),
+    verifier: authVerifier,
+    escrowService,
+  });
+  await protocolService.init();
 
   const app = createApp({ walletNode, escrowService, authService, bountyService, protocolService });
 
@@ -684,7 +733,9 @@ export async function startServer({
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { pathToFileURL } from "node:url";
+
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const { port, host } = await startServer();
   console.log(`Bit Lazarus node listening on http://${host}:${port}`);
 }

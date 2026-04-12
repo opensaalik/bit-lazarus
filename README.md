@@ -1,20 +1,22 @@
 # Bit Lazarus
 
-Bit Lazarus is a lightweight peer-to-peer wallet node built with Express.js.
-Each node keeps local wallet balances, records transfers in a shared ledger,
-and gossips new transactions to configured peers over HTTP.
+Bit Lazarus is a trustless bounty hunting system for resurrecting dead torrent
+files. When a torrent goes dark - pieces become unreachable —
+anyone can post a Lightning-backed bounty for the missing data. Hunters who can
+prove they hold and seed the missing pieces collect the reward, with every step
+enforced by cryptographic proof and escrow rather than trust.
 
-The project now also includes an escrow service scaffold backed by Lightning
-hold invoices. The payment plumbing is in place for Bitcoin Lightning testnet,
-while the final escrow contract rules can be added later.
+The system is built on three pillars:
 
-The server now also supports wallet-linked user accounts. Instead of passwords,
-clients obtain a challenge, sign it with their wallet, and exchange the signed
-challenge for a session token.
-
-On top of that identity layer, the app now supports torrent reseed bounties.
-Users can post a bounty for missing torrent pieces, and other users can join as
-bounty hunters who intend to seed the missing data.
+- **Lightning escrow** — bounty rewards are locked in hold invoices and only
+  released once delivery is cryptographically verified, so neither party can
+  cheat.
+- **Wallet-linked identity** — users authenticate by signing a challenge with
+  their Bitcoin or Lightning wallet (via the Alby browser extension or any
+  BIP-322-compatible wallet). No passwords, no accounts, no custodians.
+- **On-chain proof protocol** — hunters submit piece-level proof artifacts,
+  payers verify them, and signed receipts anchor the delivery contract before
+  funds are released.
 
 ## API
 
@@ -32,8 +34,8 @@ bounty hunters who intend to seed the missing data.
 - `POST /escrows/:id/sync` refreshes invoice state from the Lightning backend.
 - `POST /escrows/:id/release` settles a funded hold invoice.
 - `POST /escrows/:id/cancel` cancels an unpaid or unresolved hold invoice.
-- `POST /auth/challenges` issues a wallet login challenge.
-- `POST /auth/verify` verifies a signed challenge and returns a session token.
+- `POST /auth/challenges` issues a login challenge (`walletAddress` for Bitcoin, or `{"kind":"webln"}` for Alby).
+- `POST /auth/verify` verifies a signed challenge and returns a session token (WebLN challenges omit `walletAddress`; pubkey is recovered server-side).
 - `POST /auth/logout` revokes the current session token.
 - `GET /me` returns the authenticated user and current session.
 - `GET /users/me` returns the authenticated user profile.
@@ -155,12 +157,47 @@ piece hash before the session is marked verified.
 
 ## Wallet Auth
 
-The current auth flow is wallet-first:
+The auth flow supports two methods: one-click Alby (Lightning) login and
+manual BIP-322 (Bitcoin) signing.
 
-1. `POST /auth/challenges` with a wallet address.
+### Alby / Nostr NIP-07 (recommended)
+
+Install the [Alby](https://getalby.com) browser extension. The frontend
+detects `window.nostr` (NIP-07) automatically and shows a **Connect with
+Alby** button. Clicking it:
+
+1. Reads your Nostr public key via `window.nostr.getPublicKey()`.
+2. Requests a Nostr challenge: `POST /auth/challenges` with `{"kind":"nostr"}`.
+3. Builds a kind-22242 Nostr event containing the challenge and asks Alby to
+   sign it via `window.nostr.signEvent()` (one popup).
+4. Sends the full signed event to `POST /auth/verify`; the server verifies
+   the schnorr signature, checks the event id, and extracts the pubkey.
+
+The wallet identity is the Nostr x-only public key (64-character hex). This
+works with **every** Alby account type — custodial, self-hosted, or Alby Hub —
+because Nostr signing is always available, unlike `webln.signMessage()` which
+requires a direct node connection.
+
+If the Alby extension also exposes `window.webln`, the **Fund escrow** buttons
+will use `webln.sendPayment()` to pay Lightning invoices directly from the
+browser.
+
+### Manual BIP-322 (fallback)
+
+If the Alby extension is not detected, the UI falls back to the manual flow:
+
+1. `POST /auth/challenges` with a Bitcoin wallet address.
 2. Sign the returned `challenge.message` in the client wallet.
 3. `POST /auth/verify` with the challenge ID, wallet address, and signature.
 4. Use the returned session token as `Authorization: Bearer <token>`.
+
+### Escrow funding via WebLN
+
+When logged in with Alby, bounty creators can fund escrow hold invoices
+directly from the browser using `webln.sendPayment()`. Without Alby the
+invoice is copied to the clipboard for payment with any Lightning wallet.
+
+### Mock mode (local development)
 
 For local development, the default backend is `WALLET_AUTH_BACKEND=mock`. The
 mock verifier accepts this signature format:
@@ -190,12 +227,26 @@ curl -X POST http://127.0.0.1:3000/auth/verify \
   }'
 ```
 
-Escrow endpoints now require authentication and are scoped to participating
+### Auth backends
+
+| `WALLET_AUTH_BACKEND` | Verifies | Identity format |
+|-----------------------|----------|-----------------|
+| `mock` (default)      | Mock signatures | Any string |
+| `bitcoin-cli`         | BIP-322 / `bitcoin-cli verifymessage` | `tb1q...` / `bc1...` |
+| `webln`               | Lightning `signMessage` (zbase32) | Compressed hex pubkey (66 chars) |
+| `hybrid`              | Both WebLN and BIP-322 (auto-detected) | Either format |
+
+Nostr (NIP-07) login is verified server-side via schnorr signature check and
+does not depend on `WALLET_AUTH_BACKEND`. The identity is a 64-character
+x-only hex pubkey.
+
+Escrow endpoints require authentication and are scoped to participating
 users. New escrows always use the authenticated user as `buyerId`.
 
-The app now treats these wallet-linked users as the core project identity:
+The app treats these wallet-linked users as the core project identity:
 - `id`: stable internal user ID
-- `walletAddress`: login wallet
+- `walletAddress`: login wallet, Lightning node pubkey, or Nostr pubkey
+- `walletType`: `"bitcoin"`, `"webln"`, or `"nostr"`
 - `displayName`: optional public profile name
 - `bio`: optional profile text for bounty creators and hunters
 

@@ -95,15 +95,19 @@ export class BountyService {
   constructor({
     dataDir = path.resolve("data", "bounties"),
     now = () => new Date().toISOString(),
+    bondPercentage = 10,
   } = {}) {
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "bounties.json");
+    this.torrentsDir = path.join(this.dataDir, "torrents");
     this.now = now;
+    this.bondPercentage = bondPercentage;
     this.bounties = new Map();
   }
 
   async init() {
     await mkdir(this.dataDir, { recursive: true });
+    await mkdir(this.torrentsDir, { recursive: true });
 
     try {
       const raw = await readFile(this.statePath, "utf8");
@@ -140,6 +144,26 @@ export class BountyService {
     return this.bounties.get(bountyId) ?? null;
   }
 
+  async storeTorrentFile(infoHash, base64Data) {
+    const filePath = path.join(this.torrentsDir, `${infoHash}.torrent`);
+    await writeFile(filePath, Buffer.from(base64Data, "base64"));
+    return filePath;
+  }
+
+  async getTorrentFile(infoHash) {
+    const filePath = path.join(this.torrentsDir, `${infoHash}.torrent`);
+    try {
+      return await readFile(filePath);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  computeBondAmount(rewardSats) {
+    return Math.max(1, Math.ceil(rewardSats * this.bondPercentage / 100));
+  }
+
   async createBounty({
     bountyId = crypto.randomUUID(),
     creatorUserId,
@@ -153,6 +177,11 @@ export class BountyService {
     escrowId,
     escrowStatus = "AWAITING_FUNDING",
     funding = null,
+    torrentFileBase64 = null,
+    pieceCount = null,
+    pieceLength = null,
+    totalSize = null,
+    files = null,
   }) {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
@@ -164,16 +193,25 @@ export class BountyService {
       throw new Error(`bounty already exists: ${bountyId}`);
     }
 
+    const normalizedInfoHash = normalizeTorrentInfoHash(torrentInfoHash);
+
+    if (torrentFileBase64) {
+      await this.storeTorrentFile(normalizedInfoHash, torrentFileBase64);
+    }
+
+    const normalizedMissingPieces = normalizeMissingPieces(missingPieces);
+    const bondAmountSats = this.computeBondAmount(rewardSats);
     const timestamp = this.now();
     const bounty = {
       id: bountyId,
       creatorUserId,
       title: title.trim(),
       description: description.trim(),
-      torrentInfoHash: normalizeTorrentInfoHash(torrentInfoHash),
+      torrentInfoHash: normalizedInfoHash,
       torrentName: normalizeOptionalString(torrentName, "torrentName"),
       rewardSats,
-      missingPieces: normalizeMissingPieces(missingPieces),
+      bondAmountSats,
+      missingPieces: normalizedMissingPieces,
       tags: normalizeTags(tags),
       status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
       verificationMode: "manual",
@@ -184,6 +222,13 @@ export class BountyService {
       escrowId,
       escrowStatus,
       funding,
+      hasTorrentFile: !!torrentFileBase64,
+      torrentMeta: {
+        pieceCount: pieceCount ?? normalizedMissingPieces.length,
+        pieceLength: pieceLength ?? null,
+        totalSize: totalSize ?? null,
+        files: files ?? null,
+      },
       verificationSessionIds: [],
       activeContractIds: [],
       hunters: [],

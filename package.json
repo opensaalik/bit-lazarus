@@ -13,11 +13,14 @@
     "frontend:preview": "vite preview"
   },
   "dependencies": {
+    "@noble/curves": "^2.0.1",
     "bencode": "^4.0.0",
     "bip322-js": "^3.0.0",
     "express": "^5.1.0",
+    "parse-torrent": "^11.0.19",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.0",
     "three": "^0.183.2",
     "webtorrent": "^2.8.5"
   },
