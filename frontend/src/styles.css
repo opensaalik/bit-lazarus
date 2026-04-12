@@ -434,6 +434,7 @@ a.secondary-button {
 
 .command-column > .glass-panel,
 .dashboard-grid > .glass-panel,
+.protocol-grid > .glass-panel,
 .page-main > .glass-panel {
   padding: 28px;
 }
@@ -873,6 +874,7 @@ a.secondary-button {
   .hero-copy,
   .command-column > .glass-panel,
   .dashboard-grid > .glass-panel,
+  .protocol-grid > .glass-panel,
   .page-main > .glass-panel,
   .detail-panel {
     padding: 18px;
