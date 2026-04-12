@@ -294,6 +294,8 @@ export class ProtocolService {
       hunterBondEscrowId: null,
       payerBondStatus: "PENDING",
       hunterBondStatus: "PENDING",
+      payerPayoutPaymentRequest: null,
+      hunterPayoutPaymentRequest: null,
       requiredReceipts: assertPieceIndexes(pieceIndexes).length,
       receiptIds: [],
       state: "BOND_PENDING",
@@ -396,8 +398,12 @@ export class ProtocolService {
     const contract = this.requireDeliveryContract(contractId);
 
     if (outcome === "SUCCESS") {
+      this.assertPayoutInvoice(contract.hunterPayoutPaymentRequest, "hunter payout");
       if (contract.rewardEscrowId) {
-        await this.escrowService.releaseEscrow(contract.rewardEscrowId);
+        await this.escrowService.releaseEscrowToPaymentRequest(contract.rewardEscrowId, {
+          payoutPaymentRequest: contract.hunterPayoutPaymentRequest,
+          payoutMemo: `Reward payout for contract ${contractId}`,
+        });
       }
       if (contract.payerBondEscrowId) {
         await this.escrowService.cancelEscrow(contract.payerBondEscrowId);
@@ -408,6 +414,7 @@ export class ProtocolService {
       contract.state = "RESOLVED_SUCCESS";
       contract.resolutionReadiness = "RESOLVED";
     } else if (outcome === "HUNTER_FAULT") {
+      this.assertPayoutInvoice(contract.payerPayoutPaymentRequest, "payer payout");
       if (contract.rewardEscrowId) {
         await this.escrowService.cancelEscrow(contract.rewardEscrowId);
       }
@@ -415,16 +422,26 @@ export class ProtocolService {
         await this.escrowService.cancelEscrow(contract.payerBondEscrowId);
       }
       if (contract.hunterBondEscrowId) {
-        await this.escrowService.releaseEscrow(contract.hunterBondEscrowId);
+        await this.escrowService.releaseEscrowToPaymentRequest(contract.hunterBondEscrowId, {
+          payoutPaymentRequest: contract.payerPayoutPaymentRequest,
+          payoutMemo: `Hunter bond slashing payout for contract ${contractId}`,
+        });
       }
       contract.state = "RESOLVED_HUNTER_FAULT";
       contract.resolutionReadiness = "RESOLVED";
     } else if (outcome === "PAYER_FAULT") {
+      this.assertPayoutInvoice(contract.hunterPayoutPaymentRequest, "hunter payout");
       if (contract.rewardEscrowId) {
-        await this.escrowService.releaseEscrow(contract.rewardEscrowId);
+        await this.escrowService.releaseEscrowToPaymentRequest(contract.rewardEscrowId, {
+          payoutPaymentRequest: contract.hunterPayoutPaymentRequest,
+          payoutMemo: `Reward payout for contract ${contractId}`,
+        });
       }
       if (contract.payerBondEscrowId) {
-        await this.escrowService.releaseEscrow(contract.payerBondEscrowId);
+        await this.escrowService.releaseEscrowToPaymentRequest(contract.payerBondEscrowId, {
+          payoutPaymentRequest: contract.hunterPayoutPaymentRequest,
+          payoutMemo: `Payer bond slashing payout for contract ${contractId}`,
+        });
       }
       if (contract.hunterBondEscrowId) {
         await this.escrowService.cancelEscrow(contract.hunterBondEscrowId);
@@ -478,19 +495,46 @@ export class ProtocolService {
     }
 
     if (payerBondStatus) {
-      contract.payerBondStatus = payerBondStatus;
+      throw new Error("payerBondStatus can no longer be set manually; sync the bond escrows instead");
     }
 
     if (hunterBondStatus) {
-      contract.hunterBondStatus = hunterBondStatus;
-    }
-
-    if (contract.payerBondStatus === "FUNDED" && contract.hunterBondStatus === "FUNDED") {
-      contract.state = "DELIVERY_IN_PROGRESS";
+      throw new Error("hunterBondStatus can no longer be set manually; sync the bond escrows instead");
     }
 
     contract.updatedAt = this.now();
     await this.persist();
+    return contract;
+  }
+
+  async registerContractPayoutInvoice({ contractId, userId, paymentRequest }) {
+    assertString(contractId, "contractId");
+    assertString(userId, "userId");
+    assertString(paymentRequest, "paymentRequest");
+
+    const contract = this.requireDeliveryContract(contractId);
+
+    if (contract.payerUserId === userId) {
+      contract.payerPayoutPaymentRequest = paymentRequest.trim();
+    } else if (contract.hunterUserId === userId) {
+      contract.hunterPayoutPaymentRequest = paymentRequest.trim();
+    } else {
+      throw new Error("only the payer or hunter can register payout invoices");
+    }
+
+    contract.updatedAt = this.now();
+    await this.persist();
+
+    const retryOutcome = this.getResolutionOutcomeForContract(contract);
+
+    if (retryOutcome && this.escrowService) {
+      try {
+        await this.resolveContract({ contractId: contract.id, outcome: retryOutcome });
+      } catch (_error) {
+        // The periodic sweep will retry if the counterpart invoice is still missing or routing fails.
+      }
+    }
+
     return contract;
   }
 
@@ -677,6 +721,24 @@ export class ProtocolService {
       contract.resolutionReadiness = "READY_FOR_RESOLUTION_FAILURE_HUNTER_TIMEOUT";
       throw new Error("delivery contract delivery phase has expired");
     }
+  }
+
+  assertPayoutInvoice(paymentRequest, label) {
+    if (!paymentRequest || typeof paymentRequest !== "string") {
+      throw new Error(`${label} invoice is required before funds can be disbursed`);
+    }
+  }
+
+  getResolutionOutcomeForContract(contract) {
+    if (contract.resolutionReadiness === "READY_FOR_RESOLUTION_SUCCESS") {
+      return "SUCCESS";
+    }
+
+    if (contract.resolutionReadiness === "READY_FOR_RESOLUTION_FAILURE_HUNTER_TIMEOUT") {
+      return "HUNTER_FAULT";
+    }
+
+    return null;
   }
 
   async persist() {

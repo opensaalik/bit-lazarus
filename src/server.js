@@ -46,7 +46,14 @@ function canAccessDeliveryContract(userId, contract) {
   return [contract.payerUserId, contract.hunterUserId].includes(userId);
 }
 
-export function createApp({ walletNode, escrowService, authService, bountyService, protocolService }) {
+export function createApp({
+  walletNode,
+  escrowService,
+  authService,
+  bountyService,
+  protocolService,
+  enableManualEscrowActions = false,
+}) {
   const app = express();
   const frontendDistPath = path.resolve("dist");
 
@@ -466,6 +473,34 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
     response.json({ contract });
   });
 
+  app.post("/contracts/:contractId/payout-invoice", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+
+    const updatedContract = await protocolService.registerContractPayoutInvoice({
+      contractId: contract.id,
+      userId: request.auth.user.id,
+      paymentRequest: request.body?.paymentRequest,
+    });
+
+    await bountyService.updateProtocolState({
+      bountyId: updatedContract.bountyId,
+      deliveryStatus: updatedContract.state,
+      completionReadiness: updatedContract.resolutionReadiness,
+    });
+
+    response.json({ contract: updatedContract });
+  });
+
   app.post("/contracts/:contractId/bonds", requireAuth, async (request, response) => {
     const contract = protocolService.getDeliveryContract(request.params.contractId);
 
@@ -613,6 +648,11 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   });
 
   app.post("/escrows/:escrowId/release", requireAuth, async (request, response) => {
+    if (!enableManualEscrowActions) {
+      response.status(403).json({ error: "manual escrow release is disabled; use contract resolution instead" });
+      return;
+    }
+
     const existingEscrow = escrowService.getEscrow(request.params.escrowId);
 
     if (!existingEscrow) {
@@ -630,6 +670,11 @@ export function createApp({ walletNode, escrowService, authService, bountyServic
   });
 
   app.post("/escrows/:escrowId/cancel", requireAuth, async (request, response) => {
+    if (!enableManualEscrowActions) {
+      response.status(403).json({ error: "manual escrow cancel is disabled; use contract resolution instead" });
+      return;
+    }
+
     const existingEscrow = escrowService.getEscrow(request.params.escrowId);
 
     if (!existingEscrow) {
@@ -669,6 +714,7 @@ export async function startServer({
   host = process.env.HOST ?? "127.0.0.1",
   dataDir = process.env.DATA_DIR ?? path.resolve("data"),
   bountyEscrowSyncIntervalMs = Number.parseInt(process.env.BOUNTY_ESCROW_SYNC_INTERVAL_MS ?? "30000", 10),
+  enableManualEscrowActions = process.env.ENABLE_MANUAL_ESCROW_ACTIONS === "1",
 } = {}) {
   const walletNode = new WalletNode({ dataDir: path.join(dataDir, "wallet-node") });
   await walletNode.init();
@@ -695,7 +741,14 @@ export async function startServer({
   });
   await protocolService.init();
 
-  const app = createApp({ walletNode, escrowService, authService, bountyService, protocolService });
+  const app = createApp({
+    walletNode,
+    escrowService,
+    authService,
+    bountyService,
+    protocolService,
+    enableManualEscrowActions,
+  });
 
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));

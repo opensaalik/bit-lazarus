@@ -86,7 +86,36 @@ async function createContractWithBonds(tempDir) {
     bondAmountSats: 1000,
   });
 
-  return { lightningClient, escrowService, protocolService, rewardEscrow, contract: bondResult.contract, bondResult };
+  const payerPayoutInvoice = await lightningClient.createInvoice({
+    amountSats: 1_000,
+    memo: "payer payout",
+  });
+  const hunterPayoutInvoice = await lightningClient.createInvoice({
+    amountSats: 11_000,
+    memo: "hunter payout",
+  });
+
+  await protocolService.registerContractPayoutInvoice({
+    contractId: contract.id,
+    userId: "payer",
+    paymentRequest: payerPayoutInvoice.paymentRequest,
+  });
+  await protocolService.registerContractPayoutInvoice({
+    contractId: contract.id,
+    userId: "hunter",
+    paymentRequest: hunterPayoutInvoice.paymentRequest,
+  });
+
+  return {
+    lightningClient,
+    escrowService,
+    protocolService,
+    rewardEscrow,
+    contract: bondResult.contract,
+    bondResult,
+    payerPayoutInvoice,
+    hunterPayoutInvoice,
+  };
 }
 
 test("createBondEscrows creates payer and hunter bond escrows", async () => {

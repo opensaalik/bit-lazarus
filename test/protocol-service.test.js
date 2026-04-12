@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { ProtocolService } from "../src/protocol-service.js";
+import { EscrowService } from "../src/escrow-service.js";
+import { MockLightningClient } from "../src/lightning-client.js";
 import { MockWalletAuthVerifier } from "../src/wallet-auth-verifier.js";
 
 async function withTempDir(run) {
@@ -14,6 +16,24 @@ async function withTempDir(run) {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+async function setupProtocolWithEscrow(tempDir) {
+  const lightningClient = new MockLightningClient();
+  const escrowService = new EscrowService({
+    dataDir: path.join(tempDir, "escrow"),
+    lightningClient,
+  });
+  await escrowService.init();
+
+  const protocolService = new ProtocolService({
+    dataDir: path.join(tempDir, "protocol"),
+    verifier: new MockWalletAuthVerifier(),
+    escrowService,
+  });
+  await protocolService.init();
+
+  return { lightningClient, escrowService, protocolService };
 }
 
 test("protocol service creates and verifies proof sessions", async () => {
@@ -55,7 +75,7 @@ test("protocol service creates and verifies proof sessions", async () => {
   });
 });
 
-test("protocol service creates delivery contracts and records funded bonds", async () => {
+test("protocol service rejects manual bond status overrides", async () => {
   await withTempDir(async (tempDir) => {
     const service = new ProtocolService({
       dataDir: tempDir,
@@ -98,28 +118,29 @@ test("protocol service creates delivery contracts and records funded bonds", asy
 
     assert.equal(contract.state, "BOND_PENDING");
 
-    const funded = await service.updateContractBondEscrows({
-      contractId: "contract-2",
-      payerUserId: "payer-2",
-      payerBondEscrowId: "escrow-payer-bond",
-      hunterBondEscrowId: "escrow-hunter-bond",
-      payerBondStatus: "FUNDED",
-      hunterBondStatus: "FUNDED",
-    });
-
-    assert.equal(funded.state, "DELIVERY_IN_PROGRESS");
+    await assert.rejects(
+      service.updateContractBondEscrows({
+        contractId: "contract-2",
+        payerUserId: "payer-2",
+        payerBondStatus: "FUNDED",
+      }),
+      /can no longer be set manually/,
+    );
   });
 });
 
 test("protocol service validates payer-signed piece receipts and marks contracts ready", async () => {
   await withTempDir(async (tempDir) => {
-    const service = new ProtocolService({
-      dataDir: tempDir,
-      verifier: new MockWalletAuthVerifier(),
-    });
-    await service.init();
+    const { lightningClient, escrowService, protocolService } = await setupProtocolWithEscrow(tempDir);
 
-    await service.createVerificationSession({
+    const rewardEscrow = await escrowService.createEscrow({
+      escrowId: "reward-3",
+      buyerId: "payer-3",
+      sellerId: "bounty:bounty-3",
+      amountSats: 25_000,
+    });
+
+    await protocolService.createVerificationSession({
       verificationSessionId: "session-3",
       bountyId: "bounty-3",
       payerUserId: "payer-3",
@@ -127,19 +148,19 @@ test("protocol service validates payer-signed piece receipts and marks contracts
       pieceIndexes: [4],
       torrentInfoHash: "fedcba9876543210fedcba9876543210fedcba98",
     });
-    await service.submitProofArtifacts({
+    await protocolService.submitProofArtifacts({
       sessionId: "session-3",
       hunterUserId: "hunter-3",
       proofArtifacts: {
         proofs: [{ pieceIndex: 4, round70State: "proof" }],
       },
     });
-    await service.markProofVerified({
+    await protocolService.markProofVerified({
       sessionId: "session-3",
       payerUserId: "payer-3",
       verifiedPieceIndexes: [4],
     });
-    await service.createDeliveryContract({
+    const contract = await protocolService.createDeliveryContract({
       contractId: "contract-3",
       sessionId: "session-3",
       bountyId: "bounty-3",
@@ -148,17 +169,31 @@ test("protocol service validates payer-signed piece receipts and marks contracts
       payerWalletAddress: "tb1qpayer3",
       hunterWalletAddress: "tb1qhunter3",
       pieceIndexes: [4],
-      rewardEscrowId: "escrow-bounty-3",
-    });
-    await service.updateContractBondEscrows({
-      contractId: "contract-3",
-      payerUserId: "payer-3",
-      payerBondStatus: "FUNDED",
-      hunterBondStatus: "FUNDED",
+      rewardEscrowId: rewardEscrow.id,
     });
 
+    const { payerBondEscrow, hunterBondEscrow } = await protocolService.createBondEscrows({
+      contractId: contract.id,
+      bondAmountSats: 2500,
+    });
+
+    const hunterPayoutInvoice = await lightningClient.createInvoice({
+      amountSats: 25_000,
+      memo: "hunter payout",
+    });
+    await protocolService.registerContractPayoutInvoice({
+      contractId: contract.id,
+      userId: "hunter-3",
+      paymentRequest: hunterPayoutInvoice.paymentRequest,
+    });
+
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: rewardEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: payerBondEscrow.funding.paymentHashHex });
+    await lightningClient.acceptHoldInvoice({ paymentHashHex: hunterBondEscrow.funding.paymentHashHex });
+    await protocolService.syncBondStatus({ contractId: contract.id });
+
     const receiptMessage = "deliveryContractId=contract-3|pieceIndex=4|pieceHash=abc";
-    const receipt = await service.submitPieceReceipt({
+    const receipt = await protocolService.submitPieceReceipt({
       contractId: "contract-3",
       payerUserId: "payer-3",
       receiptSignerWalletAddress: "tb1qpayer3",
@@ -167,11 +202,11 @@ test("protocol service validates payer-signed piece receipts and marks contracts
       receiptSignature: `mock-signature:tb1qpayer3:${receiptMessage}`,
     });
 
-    const contract = service.getDeliveryContract("contract-3");
+    const updatedContract = protocolService.getDeliveryContract("contract-3");
 
     assert.equal(receipt.pieceIndex, 4);
-    assert.equal(contract.state, "DELIVERY_VERIFIED");
-    assert.equal(contract.resolutionReadiness, "READY_FOR_RESOLUTION_SUCCESS");
+    assert.equal(updatedContract.state, "RESOLVED_SUCCESS");
+    assert.equal(updatedContract.resolutionReadiness, "RESOLVED");
   });
 });
 

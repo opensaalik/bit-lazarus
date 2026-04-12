@@ -134,21 +134,86 @@ export class EscrowService {
   }
 
   async releaseEscrow(escrowId) {
-    const escrow = await this.syncEscrow(escrowId);
+    return this.releaseEscrowToPaymentRequest(escrowId, {});
+  }
 
-    if (escrow.status !== "FUNDED") {
-      throw new Error("escrow must be FUNDED before release");
+  async releaseEscrowToPaymentRequest(escrowId, { payoutPaymentRequest = null, payoutMemo = null } = {}) {
+    const escrow = this.requireEscrow(escrowId);
+
+    if (escrow.status === "CANCELED") {
+      throw new Error("canceled escrows cannot be released");
     }
 
-    await this.lightningClient.settleHoldInvoice({
-      preimageHex: escrow.settlement.releasePreimageHex,
-    });
+    if (escrow.status !== "RELEASED") {
+      const syncedEscrow = await this.syncEscrow(escrowId);
 
-    escrow.status = "RELEASED";
-    escrow.funding.invoiceState = "SETTLED";
-    escrow.updatedAt = this.now();
-    await this.persist();
-    return escrow;
+      if (syncedEscrow.status !== "FUNDED") {
+        throw new Error("escrow must be FUNDED before release");
+      }
+
+      await this.lightningClient.settleHoldInvoice({
+        preimageHex: syncedEscrow.settlement.releasePreimageHex,
+      });
+
+      syncedEscrow.status = "RELEASED";
+      syncedEscrow.funding.invoiceState = "SETTLED";
+      syncedEscrow.updatedAt = this.now();
+      await this.persist();
+    }
+
+    if (!payoutPaymentRequest) {
+      if (!escrow.settlement.disbursement) {
+        escrow.settlement.disbursement = {
+          status: "INTERNAL_SETTLEMENT",
+          paymentRequest: null,
+          memo: payoutMemo,
+          updatedAt: this.now(),
+        };
+        escrow.updatedAt = this.now();
+        await this.persist();
+      }
+
+      return escrow;
+    }
+
+    const disbursement = escrow.settlement.disbursement;
+
+    if (disbursement?.status === "PAID") {
+      if (disbursement.paymentRequest !== payoutPaymentRequest) {
+        throw new Error("escrow disbursement was already sent to a different payment request");
+      }
+
+      return escrow;
+    }
+
+    try {
+      const payment = await this.lightningClient.payInvoice({
+        paymentRequest: payoutPaymentRequest,
+      });
+
+      escrow.settlement.disbursement = {
+        status: "PAID",
+        paymentRequest: payoutPaymentRequest,
+        memo: payoutMemo,
+        paymentHashHex: payment.paymentHashHex,
+        paymentPreimageHex: payment.paymentPreimageHex,
+        updatedAt: this.now(),
+      };
+      escrow.updatedAt = this.now();
+      await this.persist();
+      return escrow;
+    } catch (error) {
+      escrow.settlement.disbursement = {
+        status: "FAILED",
+        paymentRequest: payoutPaymentRequest,
+        memo: payoutMemo,
+        lastError: error.message,
+        updatedAt: this.now(),
+      };
+      escrow.updatedAt = this.now();
+      await this.persist();
+      throw new Error(`escrow released but disbursement failed: ${error.message}`);
+    }
   }
 
   async cancelEscrow(escrowId) {
@@ -192,4 +257,3 @@ export class EscrowService {
     );
   }
 }
-

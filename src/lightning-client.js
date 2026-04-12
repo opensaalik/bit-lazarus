@@ -65,9 +65,17 @@ function assertAmount(amountSats) {
   }
 }
 
+function assertString(value, fieldName) {
+  if (!value || typeof value !== "string") {
+    throw new Error(`${fieldName} is required`);
+  }
+}
+
 export class MockLightningClient {
   constructor() {
     this.invoices = new Map();
+    this.invoicesByPaymentRequest = new Map();
+    this.payments = new Map();
     this.nextAddIndex = 1;
   }
 
@@ -83,9 +91,34 @@ export class MockLightningClient {
       amountSats,
       expirySeconds,
       state: "OPEN",
+      type: "HOLD",
     };
 
     this.invoices.set(hashHex, invoice);
+    this.invoicesByPaymentRequest.set(invoice.paymentRequest, invoice);
+    return invoice;
+  }
+
+  async createInvoice({ amountSats, memo, expirySeconds = 3600 } = {}) {
+    assertAmount(amountSats);
+
+    const paymentPreimageHex = crypto.randomBytes(32).toString("hex");
+    const paymentHashHex = crypto.createHash("sha256").update(Buffer.from(paymentPreimageHex, "hex")).digest("hex");
+    const invoice = {
+      paymentHashHex,
+      paymentPreimageHex,
+      paymentRequest: `lnmocktestnet-invoice-${paymentHashHex}`,
+      paymentAddr: crypto.randomBytes(32).toString("hex"),
+      addIndex: String(this.nextAddIndex++),
+      memo,
+      amountSats,
+      expirySeconds,
+      state: "OPEN",
+      type: "STANDARD",
+    };
+
+    this.invoices.set(paymentHashHex, invoice);
+    this.invoicesByPaymentRequest.set(invoice.paymentRequest, invoice);
     return invoice;
   }
 
@@ -127,6 +160,35 @@ export class MockLightningClient {
 
     invoice.state = "SETTLED";
     return { state: invoice.state };
+  }
+
+  async payInvoice({ paymentRequest }) {
+    assertString(paymentRequest, "paymentRequest");
+
+    const invoice = this.invoicesByPaymentRequest.get(paymentRequest);
+
+    if (!invoice) {
+      throw new Error(`unknown invoice: ${paymentRequest}`);
+    }
+
+    if (invoice.state === "SETTLED") {
+      return {
+        paymentHashHex: invoice.paymentHashHex,
+        paymentPreimageHex: invoice.paymentPreimageHex ?? null,
+        paymentRequest,
+        status: "SUCCEEDED",
+      };
+    }
+
+    invoice.state = "SETTLED";
+    const payment = {
+      paymentHashHex: invoice.paymentHashHex,
+      paymentPreimageHex: invoice.paymentPreimageHex ?? null,
+      paymentRequest,
+      status: "SUCCEEDED",
+    };
+    this.payments.set(invoice.paymentHashHex, payment);
+    return payment;
   }
 
   async acceptHoldInvoice({ paymentHashHex }) {
@@ -215,6 +277,28 @@ export class LndRestLightningClient {
     });
 
     return { state: result.state ?? "SETTLED" };
+  }
+
+  async payInvoice({ paymentRequest } = {}) {
+    assertString(paymentRequest, "paymentRequest");
+
+    const result = await this.request("/v1/channels/transactions", {
+      method: "POST",
+      body: {
+        payment_request: paymentRequest,
+      },
+    });
+
+    if (result.payment_error) {
+      throw new Error(result.payment_error);
+    }
+
+    return {
+      paymentHashHex: result.payment_hash ? decodeHexFromBase64(result.payment_hash) : null,
+      paymentPreimageHex: result.payment_preimage ? decodeHexFromBase64(result.payment_preimage) : null,
+      paymentRequest,
+      status: "SUCCEEDED",
+    };
   }
 
   async request(pathname, options = {}) {

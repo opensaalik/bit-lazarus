@@ -14,6 +14,7 @@ const bitcoinCliDatadir = process.env.BITCOIN_CLI_DATADIR ?? path.resolve(".bitc
 const bitcoinCliChain = process.env.BITCOIN_CLI_CHAIN ?? "testnet4";
 const payerWalletName = process.env.E2E_PAYER_WALLET ?? "bit-lazarus-e2e-payer";
 const hunterWalletName = process.env.E2E_HUNTER_WALLET ?? "bit-lazarus-e2e-hunter";
+const hunterPayoutPaymentRequestFromEnv = process.env.E2E_HUNTER_PAYOUT_PAYMENT_REQUEST ?? null;
 const host = "127.0.0.1";
 const port = Number.parseInt(process.env.E2E_PORT ?? "3100", 10);
 const fixtureRoot = path.resolve("manual-test");
@@ -307,18 +308,48 @@ async function main() {
       },
     });
     let contract = contractPayload.contract;
+    const payerBondEscrow = contractPayload.payerBondEscrow;
+    const hunterBondEscrow = contractPayload.hunterBondEscrow;
     results.push(reportResult("contract-create", contract.state === "BOND_PENDING" ? "PASS" : "FAIL", { contractId: contract.id, state: contract.state }));
 
+    logStep("registering the hunter payout invoice");
+    let hunterPayoutPaymentRequest = hunterPayoutPaymentRequestFromEnv;
+
+    if (!hunterPayoutPaymentRequest && serverHandle.escrowService.lightningClient.createInvoice) {
+      const payoutInvoice = await serverHandle.escrowService.lightningClient.createInvoice({
+        amountSats: bounty.rewardSats + bounty.bondAmountSats,
+        memo: `hunter payout for ${contract.id}`,
+      });
+      hunterPayoutPaymentRequest = payoutInvoice.paymentRequest;
+    }
+
+    if (!hunterPayoutPaymentRequest) {
+      throw new Error("hunter payout invoice is required; set E2E_HUNTER_PAYOUT_PAYMENT_REQUEST for real Lightning runs");
+    }
+
+    await requestJson(`${baseUrl}/contracts/${contract.id}/payout-invoice`, {
+      method: "POST",
+      token: hunter.token,
+      body: {
+        paymentRequest: hunterPayoutPaymentRequest,
+      },
+    });
+
     logStep("funding both bonds");
-    const fundedContractPayload = await requestJson(`${baseUrl}/contracts/${contract.id}/bonds`, {
+    if (serverHandle.escrowService.lightningClient.acceptHoldInvoice) {
+      await serverHandle.escrowService.lightningClient.acceptHoldInvoice({
+        paymentHashHex: payerBondEscrow.funding.paymentHashHex,
+      });
+      await serverHandle.escrowService.lightningClient.acceptHoldInvoice({
+        paymentHashHex: hunterBondEscrow.funding.paymentHashHex,
+      });
+    } else {
+      throw new Error("real Lightning bond funding must be performed externally before the bond sync step");
+    }
+
+    const fundedContractPayload = await requestJson(`${baseUrl}/contracts/${contract.id}/sync-bonds`, {
       method: "POST",
       token: payer.token,
-      body: {
-        payerBondEscrowId: "payer-bond-e2e",
-        hunterBondEscrowId: "hunter-bond-e2e",
-        payerBondStatus: "FUNDED",
-        hunterBondStatus: "FUNDED",
-      },
     });
     contract = fundedContractPayload.contract;
     results.push(reportResult("bond-fund", contract.state === "DELIVERY_IN_PROGRESS" ? "PASS" : "FAIL", { state: contract.state }));
@@ -340,7 +371,7 @@ async function main() {
     results.push(
       reportResult(
         "receipt-submit",
-        contract.state === "DELIVERY_VERIFIED" && contract.resolutionReadiness === "READY_FOR_RESOLUTION_SUCCESS"
+        contract.state === "RESOLVED_SUCCESS" && contract.resolutionReadiness === "RESOLVED"
           ? "PASS"
           : "FAIL",
         {

@@ -247,8 +247,8 @@ function createLightningSignature(privKey, message) {
   const msgHash = crypto.createHash("sha256").update(first).digest();
 
   const sig = secp256k1.sign(msgHash, privKey, { format: "recovered" });
-  const recovery = sig.recovery;
-  const compact = sig.toCompactRawBytes();
+  const recovery = typeof sig.recovery === "number" ? sig.recovery : sig[0];
+  const compact = typeof sig.toCompactRawBytes === "function" ? sig.toCompactRawBytes() : sig.slice(1);
 
   const lndSig = new Uint8Array(65);
   lndSig[0] = 31 + recovery;

@@ -1,0 +1,97 @@
+{
+  "escrows": [
+    {
+      "id": "escrow-3643007a-04a2-461c-b974-3151f1e0da52",
+      "buyerId": "7da51194-eaed-4eae-a846-2f53c5436eb1",
+      "sellerId": "bounty:3643007a-04a2-461c-b974-3151f1e0da52",
+      "mediatorId": null,
+      "amountSats": 25000,
+      "description": "Fixture recovery",
+      "metadata": {
+        "kind": "bounty",
+        "bountyId": "3643007a-04a2-461c-b974-3151f1e0da52",
+        "torrentInfoHash": "0dc90a238dda838b2ebfb7018e980276df1da0be"
+      },
+      "network": "lightning-testnet",
+      "status": "RELEASED",
+      "createdAt": "2026-04-12T03:15:33.472Z",
+      "updatedAt": "2026-04-12T03:15:49.116Z",
+      "funding": {
+        "type": "hold_invoice",
+        "invoiceState": "SETTLED",
+        "paymentHashHex": "28a1103c7e04c59305e924a07512110697d8b558ae6a0b0e59359a94e358d629",
+        "paymentRequest": "lnbcrt250u1p5akrj4pp59zs3q0r7qnzexp0fyjs82ys3q6ta3d2c4e4qkrjexkdffc6c6c5sdq6ge5hsar4wfjjqun9vdhhvetj0ycqzzsxqrrsssp5ae5zqzmxesn5waaxnqvsm77vpgah3k0tszj4pytszaglt3kq75wq9qxpqysgqcfvg6adr8spkt95gr4k7ncxug4ve7ltqsh9srnds6kntf4h3znejwdhzagrhqzqsyztuthhyf8y0ky8gzvpdqk7zqv2j49gkrn2k3ksqy0saeh",
+        "paymentAddr": "ee68200b66cc274777a698190dfbcc0a3b78d9eb80a55091701751f5c6c0f51c",
+        "addIndex": "26",
+        "expirySeconds": 3600
+      },
+      "settlement": {
+        "releasePreimageHex": "94bd0a49f18dc1d69f0ad046ba2e9f863d1c4381402c978bf444885b93300de2",
+        "disbursement": {
+          "status": "PAID",
+          "paymentRequest": "lnbcrt250u1p5akrj6pp5c7gzlt9q0zv5rfgkz34x0us9wnt9mdxs6ksqerwcuxa3pw80s69sdpggf5hggzvv9axzun4wvsxsatww3jhygrsv9uk7at5cqzzsxqyz5vqsp5ag43sm3q07ksk2hgwmxfv628j637wrwwgukyvm23mvsfv4sm9h8s9qxpqysgqktsfqdnpe56y5pu4gd084whjhv0kfa0463zh8kqgvjy20qz9xa4ne7hl2awnlynm6sg2c4xevlnfsnx3c945t4ps3h2k68w42wuhltqqwp77yl",
+          "memo": "Reward payout for contract 8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+          "paymentHashHex": "c7902faca0789941a516146a67f20574d65db4d0d5a00c8dd8e1bb10b8ef868b",
+          "paymentPreimageHex": "f9be25971986e7cd28642f7307c026aeee63e915cb0de609b043209fb0e00fbf",
+          "updatedAt": "2026-04-12T03:15:49.116Z"
+        }
+      }
+    },
+    {
+      "id": "bond-payer-8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "buyerId": "7da51194-eaed-4eae-a846-2f53c5436eb1",
+      "sellerId": "contract:8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "mediatorId": null,
+      "amountSats": 2500,
+      "description": "Payer collateral bond for contract 8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "metadata": {
+        "kind": "payer-bond",
+        "contractId": "8db484d7-9913-40c3-9c59-8ae7be18e8f4"
+      },
+      "network": "lightning-testnet",
+      "status": "CANCELED",
+      "createdAt": "2026-04-12T03:15:38.773Z",
+      "updatedAt": "2026-04-12T03:15:49.124Z",
+      "funding": {
+        "type": "hold_invoice",
+        "invoiceState": "CANCELED",
+        "paymentHashHex": "2bf9d97040f4d19b2d6c9e73df1a934f1d7d8bf0a71d73eeb11580a01c4e7f7d",
+        "paymentRequest": "lnbcrt25u1p5akrj6pp590uajuzq7ngekttvneea7x5nfuwhmzls5uwh8m43zkq2q8zw0a7sdrj2pshjetjyp3k7mrvv96x2unpdssxymmwvssxvmmjyp3k7mn5wfskxapq8pjxydpcx3jrwtfe8ycnxtf5xp3nxtfevv6njtfcv9jnwcn9xyux2wrxxscqzzsxqrrsssp587r6nm0sfv3wkh3h0sn8nkuzmzfr0vw840ppcyeaj7fx80wzrmxq9qxpqysgqvlp9ga8w2s9vg9g223v3nr6dg4ywak5vvtwevzv0qhsqmartwkk5h9neeqfne8srppdlll4yy9y22652fru76u2c66w45ud07qadmggp8u950h",
+        "paymentAddr": "3f87a9edf04b22eb5e377c2679db82d89237b1c7abc21c133d979263bdc21ecc",
+        "addIndex": "27",
+        "expirySeconds": 3600
+      },
+      "settlement": {
+        "releasePreimageHex": "cc64a1004a22b142ef320284f61f20b1c64af5b46a7384b359f2e39b2cbf76e7"
+      }
+    },
+    {
+      "id": "bond-hunter-8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "buyerId": "732f4603-9d92-4dca-a083-7ecd2dbdacc1",
+      "sellerId": "contract:8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "mediatorId": null,
+      "amountSats": 2500,
+      "description": "Hunter collateral bond for contract 8db484d7-9913-40c3-9c59-8ae7be18e8f4",
+      "metadata": {
+        "kind": "hunter-bond",
+        "contractId": "8db484d7-9913-40c3-9c59-8ae7be18e8f4"
+      },
+      "network": "lightning-testnet",
+      "status": "CANCELED",
+      "createdAt": "2026-04-12T03:15:38.779Z",
+      "updatedAt": "2026-04-12T03:15:49.129Z",
+      "funding": {
+        "type": "hold_invoice",
+        "invoiceState": "CANCELED",
+        "paymentHashHex": "9c250a5dc092d2b080f7a24c58be36b5144d9644e577b72a92a4ab4ad35620a5",
+        "paymentRequest": "lnbcrt25u1p5akrj6pp5nsjs5hwqjtftpq8h5fx9303kk52ym9jyu4mmw25j5j45456kyzjsdr5fp6kuar9wgsxxmmvd3shgetjv9kzqcn0dejzqen0wgsxxmmww3exzcm5yquxgc358q6xgded8yunzvedxscxxved893n2wfd8psk2dmzv5cnsefcvc6qcqzzsxqrrsssp57hede6nlw9jm6gq3tdkz7uuh4u7unc4l4pwl3azzpgy7zsr44swq9qxpqysgqwa6vz9m4fn8pz58ls0l9e7ywfg94y3zs0dt3hp5c37fp2azne8mjgkm0udh47vtrtsf4qum60vdjy3wac2gjr43lh69a4nlq7q6ke2sqw8r9ck",
+        "paymentAddr": "f5f2dcea7f7165bd20115b6c2f7397af3dc9e2bfa85df8f4420a09e14075ac1c",
+        "addIndex": "28",
+        "expirySeconds": 3600
+      },
+      "settlement": {
+        "releasePreimageHex": "4e5a2fd816ad9a096eca86c2a8c10a394beb52d16f8cfaa75e3a8df382882256"
+      }
+    }
+  ]
+}

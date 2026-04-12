@@ -1,0 +1,58 @@
+{
+  "bounties": [
+    {
+      "id": "3643007a-04a2-461c-b974-3151f1e0da52",
+      "creatorUserId": "7da51194-eaed-4eae-a846-2f53c5436eb1",
+      "title": "Fixture recovery",
+      "description": "Automated Polar happy path",
+      "torrentInfoHash": "0dc90a238dda838b2ebfb7018e980276df1da0be",
+      "torrentName": "fixture-a.torrent",
+      "rewardSats": 25000,
+      "bondAmountSats": 2500,
+      "missingPieces": [
+        0
+      ],
+      "tags": [
+        "polar",
+        "script"
+      ],
+      "status": "OPEN",
+      "verificationMode": "manual",
+      "deliveryStatus": "RESOLVED_SUCCESS",
+      "completionReadiness": "RESOLVED",
+      "createdAt": "2026-04-12T03:15:33.475Z",
+      "updatedAt": "2026-04-12T03:15:49.131Z",
+      "escrowId": "escrow-3643007a-04a2-461c-b974-3151f1e0da52",
+      "escrowStatus": "FUNDED",
+      "funding": {
+        "type": "hold_invoice",
+        "invoiceState": "SETTLED",
+        "paymentHashHex": "28a1103c7e04c59305e924a07512110697d8b558ae6a0b0e59359a94e358d629",
+        "paymentRequest": "lnbcrt250u1p5akrj4pp59zs3q0r7qnzexp0fyjs82ys3q6ta3d2c4e4qkrjexkdffc6c6c5sdq6ge5hsar4wfjjqun9vdhhvetj0ycqzzsxqrrsssp5ae5zqzmxesn5waaxnqvsm77vpgah3k0tszj4pytszaglt3kq75wq9qxpqysgqcfvg6adr8spkt95gr4k7ncxug4ve7ltqsh9srnds6kntf4h3znejwdhzagrhqzqsyztuthhyf8y0ky8gzvpdqk7zqv2j49gkrn2k3ksqy0saeh",
+        "paymentAddr": "ee68200b66cc274777a698190dfbcc0a3b78d9eb80a55091701751f5c6c0f51c",
+        "addIndex": "26",
+        "expirySeconds": 3600
+      },
+      "hasTorrentFile": true,
+      "torrentMeta": {
+        "pieceCount": 1,
+        "pieceLength": null,
+        "totalSize": null,
+        "files": null
+      },
+      "verificationSessionIds": [
+        "8c618889-de14-4871-a410-c9b6934aa368"
+      ],
+      "activeContractIds": [
+        "8db484d7-9913-40c3-9c59-8ae7be18e8f4"
+      ],
+      "hunters": [
+        {
+          "userId": "732f4603-9d92-4dca-a083-7ecd2dbdacc1",
+          "joinedAt": "2026-04-12T03:15:38.576Z",
+          "status": "JOINED"
+        }
+      ]
+    }
+  ]
+}

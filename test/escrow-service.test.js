@@ -57,9 +57,18 @@ test("escrow sync maps accepted hold invoices to FUNDED and release settles them
     const fundedEscrow = await service.syncEscrow(escrow.id);
     assert.equal(fundedEscrow.status, "FUNDED");
 
-    const releasedEscrow = await service.releaseEscrow(escrow.id);
+    const payoutInvoice = await lightningClient.createInvoice({
+      amountSats: 10_000,
+      memo: "seller payout",
+    });
+    const releasedEscrow = await service.releaseEscrowToPaymentRequest(escrow.id, {
+      payoutPaymentRequest: payoutInvoice.paymentRequest,
+      payoutMemo: "seller payout",
+    });
     assert.equal(releasedEscrow.status, "RELEASED");
     assert.equal(releasedEscrow.funding.invoiceState, "SETTLED");
+    assert.equal(releasedEscrow.settlement.disbursement.status, "PAID");
+    assert.equal(releasedEscrow.settlement.disbursement.paymentRequest, payoutInvoice.paymentRequest);
   });
 });
 
