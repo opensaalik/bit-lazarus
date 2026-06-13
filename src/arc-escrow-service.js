@@ -206,9 +206,6 @@ export function getLocatorStatusForArcStatus(status) {
 
 export function createArcEscrowServiceFromEnv(environment = process.env, options = {}) {
   const contractAddress = environment.ARC_ESCROW_CONTRACT_ADDRESS ?? options.contractAddress;
-  if (!contractAddress) {
-    return null;
-  }
 
   return new ArcEscrowService({
     ...options,

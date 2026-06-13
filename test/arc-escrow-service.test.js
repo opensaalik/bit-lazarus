@@ -151,8 +151,11 @@ test("Arc escrow service formats contract bounty state for the app", () => {
   });
 });
 
-test("Arc escrow factory is disabled until contract address is configured", () => {
-  assert.equal(createArcEscrowServiceFromEnv({}), null);
+test("Arc escrow factory requires a configured contract address", () => {
+  assert.throws(
+    () => createArcEscrowServiceFromEnv({}),
+    /ARC_ESCROW_CONTRACT_ADDRESS is required/,
+  );
 
   const service = createArcEscrowServiceFromEnv({
     ARC_ESCROW_CONTRACT_ADDRESS: contractAddress,
