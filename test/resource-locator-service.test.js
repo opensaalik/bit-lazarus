@@ -8,6 +8,7 @@ import {
   MockEnsLocatorAdapter,
   ResourceLocatorService,
   ViemEnsLocatorAdapter,
+  ViemEnsV2LocatorAdapter,
 } from "../src/resource-locator-service.js";
 
 async function withTempDir(run) {
@@ -154,6 +155,112 @@ test("viem ENS adapter writes Walrus blob text records to the resolver", async (
 
   assert.equal(result.transactionHash, "0xdef456");
   assert.equal(writes.length, 1);
+  assert.equal(writes[0].functionName, "setText");
+  assert.equal(writes[0].args[1], "bitlazarus.walrus.blob");
+  assert.equal(writes[0].args[2], "walrus_blob_0123456789");
+});
+
+test("viem ENSv2 adapter registers subnames through the parent child registry", async () => {
+  const account = {
+    address: "0x00000000000000000000000000000000000000aa",
+  };
+  const childRegistry = "0x00000000000000000000000000000000000000bb";
+  const resolver = "0x00000000000000000000000000000000000000cc";
+  const reads = [];
+  const writes = [];
+  const adapter = new ViemEnsV2LocatorAdapter({
+    parentName: "lazarus.eth",
+    publicClient: {
+      async readContract(call) {
+        reads.push(call);
+        if (call.functionName === "getSubregistry") {
+          return childRegistry;
+        }
+        if (call.functionName === "getResolver") {
+          return resolver;
+        }
+        if (call.functionName === "getState") {
+          return {
+            status: 0,
+            expiry: 0n,
+            latestOwner: "0x0000000000000000000000000000000000000000",
+            tokenId: 0n,
+            resource: 0n,
+          };
+        }
+
+        throw new Error(`unexpected read: ${call.functionName}`);
+      },
+      async waitForTransactionReceipt({ hash }) {
+        return { transactionHash: hash, blockNumber: 789n };
+      },
+    },
+    walletClient: {
+      async writeContract(call) {
+        writes.push(call);
+        return "0x123789";
+      },
+    },
+    account,
+    now: () => 1_700_000_000,
+  });
+
+  const result = await adapter.ensureSubname({
+    torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
+  });
+
+  assert.equal(result.ensName, "b-0123456789abcdef.lazarus.eth");
+  assert.equal(result.created, true);
+  assert.equal(result.registry, childRegistry);
+  assert.equal(result.resolver, resolver);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].address, childRegistry);
+  assert.equal(writes[0].functionName, "register");
+  assert.equal(writes[0].args[0], "b-0123456789abcdef");
+  assert.equal(writes[0].args[1], account.address);
+  assert.equal(writes[0].args[3], resolver);
+  assert.equal(writes[0].args[5], 1731536000n);
+  assert.equal(reads.some((call) => call.functionName === "getSubregistry"), true);
+  assert.equal(reads.some((call) => call.functionName === "getResolver"), true);
+});
+
+test("viem ENSv2 adapter writes Walrus blob text records to the discovered resolver", async () => {
+  const account = {
+    address: "0x00000000000000000000000000000000000000aa",
+  };
+  const resolver = "0x00000000000000000000000000000000000000cc";
+  const writes = [];
+  const adapter = new ViemEnsV2LocatorAdapter({
+    parentName: "lazarus.eth",
+    publicClient: {
+      async readContract(call) {
+        if (call.functionName === "getResolver") {
+          return resolver;
+        }
+
+        throw new Error(`unexpected read: ${call.functionName}`);
+      },
+      async waitForTransactionReceipt({ hash }) {
+        return { transactionHash: hash, blockNumber: 987n };
+      },
+    },
+    walletClient: {
+      async writeContract(call) {
+        writes.push(call);
+        return "0x987123";
+      },
+    },
+    account,
+  });
+
+  const result = await adapter.setWalrusBlob({
+    ensName: "b-0123456789abcdef.lazarus.eth",
+    walrusBlobId: "walrus_blob_0123456789",
+  });
+
+  assert.equal(result.transactionHash, "0x987123");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].address, resolver);
   assert.equal(writes[0].functionName, "setText");
   assert.equal(writes[0].args[1], "bitlazarus.walrus.blob");
   assert.equal(writes[0].args[2], "walrus_blob_0123456789");
