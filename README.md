@@ -128,3 +128,5 @@ Use the bundled fixture files:
 npm test
 npm run frontend:build
 ```
+
+*Won 1st place at MIT Bitcoin Hackathon*
