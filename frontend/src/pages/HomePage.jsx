@@ -1,49 +1,35 @@
 import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext.jsx";
+import NetworkBackground from "../components/NetworkBackground.jsx";
 
-const HOW_IT_WORKS = [
-  {
-    title: "Post a bounty",
-    body: "Upload a .torrent file and stake a USDC reward. The infohash becomes a stable ENS resource name and Arc seals the escrow.",
-  },
-  {
-    title: "Recover peer to peer",
-    body: "A hunter who still holds the data joins, commits the file hash, and seeds it straight to the requester over WebTorrent.",
-  },
-  {
-    title: "Verify & settle",
-    body: "The browser checks the SHA-256, archives the file to Walrus, resolves it through ENS, and Arc releases the reward.",
-  },
+const USES = [
+  { name: "ENS", body: "Every torrent infohash derives a stable ENS name, so a recovery is resolvable forever." },
+  { name: "WebTorrent", body: "Recovered files move peer-to-peer, browser to browser — no central server in the middle." },
+  { name: "Walrus", body: "Once verified, the file is archived to Walrus for durable, content-addressed storage." },
+  { name: "Arc", body: "USDC escrow on Arc locks the reward and only pays out on a verified hash match." },
+];
+
+const STEPS = [
+  { title: "Post a bounty", body: "Upload a dead .torrent and stake a USDC reward. Arc seals the escrow." },
+  { title: "Hunt & seed", body: "A hunter who still has the data joins and seeds it back over WebTorrent." },
+  { title: "Verify & settle", body: "The browser checks SHA-256, archives to Walrus, and Arc releases the reward." },
 ];
 
 export default function HomePage() {
-  const logoUrl = `${import.meta.env.BASE_URL}bit-lazarus-logo.svg`;
-  const {
-    displayName,
-    setDisplayName,
-    token,
-    currentUser,
-    loading,
-    handleWalletLogin,
-  } = useApp();
+  const { displayName, setDisplayName, token, currentUser, loading, handleWalletLogin } = useApp();
 
   return (
     <main className="page-main">
-      <section className="glass-panel hero-panel">
-        <div className="hero-copy">
-          <img alt="Bit Lazarus" className="hero-logo-image" src={logoUrl} />
-          <p className="eyebrow">Torrent recovery, settled on-chain</p>
-          <h1 className="hero-title">
-            Put a bounty on a <em>dead torrent</em> — and bring it back.
+      <section className="net-hero">
+        <NetworkBackground className="net-canvas" />
+        <div className="net-hero-inner">
+          <h1 className="brand-title">
+            Bit<b>Lazarus</b>
           </h1>
-          <p className="hero-lede">
-            Bit Lazarus turns a forgotten .torrent into a fundable bounty: wallet auth, an ENS
-            name derived from the infohash, peer-to-peer WebTorrent delivery, a Walrus archive,
-            and Arc USDC escrow that only pays out once the file is hash-verified.
-          </p>
+          <p className="brand-sub">Bring dead torrents back from the grave — for a bounty.</p>
 
           {!token ? (
-            <form className="home-cta-row" onSubmit={handleWalletLogin}>
+            <form className="brand-cta" onSubmit={handleWalletLogin}>
               <button className="primary-button" disabled={loading} type="submit">
                 {loading ? "Connecting…" : "Connect wallet"}
               </button>
@@ -52,7 +38,7 @@ export default function HomePage() {
               </Link>
             </form>
           ) : (
-            <div className="home-cta-row">
+            <div className="brand-cta">
               <Link className="primary-button" to="/marketplace">
                 Browse bounties
               </Link>
@@ -61,12 +47,20 @@ export default function HomePage() {
               </Link>
             </div>
           )}
+        </div>
+      </section>
 
-          {token && currentUser ? (
-            <p className="hero-session">
-              Connected as {currentUser.displayName ?? currentUser.walletAddress}
-            </p>
-          ) : (
+      {!token ? (
+        <section className="glass-panel stack">
+          <div className="panel-head">
+            <p className="eyebrow">Get started</p>
+            <h2>Connect a wallet</h2>
+          </div>
+          <p className="muted-copy">
+            Sign in with your Ethereum wallet and sign the issued message with the same account you
+            use for Arc.
+          </p>
+          <form className="stack" onSubmit={handleWalletLogin}>
             <label className="field hero-name-field">
               <span>Display name (optional)</span>
               <input
@@ -75,19 +69,47 @@ export default function HomePage() {
                 value={displayName}
               />
             </label>
-          )}
+            <div className="button-row">
+              <button className="primary-button" disabled={loading} type="submit">
+                {loading ? "Connecting…" : "Connect wallet"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : (
+        <section className="glass-panel stack">
+          <div className="panel-head">
+            <p className="eyebrow">Connected</p>
+            <h2>{currentUser?.displayName ?? "Wallet linked"}</h2>
+          </div>
+          <p className="muted-copy">Signed in as {currentUser?.walletAddress}. Jump into the marketplace.</p>
+        </section>
+      )}
+
+      <section className="glass-panel landing-section">
+        <div className="panel-head">
+          <p className="eyebrow">The stack</p>
+          <h2 className="section-title">What we use</h2>
+        </div>
+        <div className="uses-grid">
+          {USES.map((use) => (
+            <article className="use-card" key={use.name}>
+              <h4>{use.name}</h4>
+              <p>{use.body}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="glass-panel stack">
+      <section className="glass-panel landing-section">
         <div className="panel-head">
-          <p className="eyebrow">How it works</p>
-          <h2>Three steps from dead link to delivered file</h2>
+          <p className="eyebrow">The loop</p>
+          <h2 className="section-title">How it works</h2>
         </div>
-        <div className="howto-grid">
-          {HOW_IT_WORKS.map((step, index) => (
-            <article className="howto-card" key={step.title}>
-              <span className="howto-index">{String(index + 1).padStart(2, "0")}</span>
+        <div className="steps-row">
+          {STEPS.map((step, index) => (
+            <article className="step-card" key={step.title}>
+              <span className="step-num">{String(index + 1).padStart(2, "0")}</span>
               <h4>{step.title}</h4>
               <p>{step.body}</p>
             </article>
@@ -102,6 +124,18 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      <footer className="landing-footer">
+        <div className="landing-footer-inner">
+          <span className="landing-footer-brand">
+            Bit<b>Lazarus</b>
+          </span>
+          <nav aria-label="Footer">
+            <Link to="/marketplace">Marketplace</Link>
+            <Link to="/bounties/new">Post a bounty</Link>
+          </nav>
+        </div>
+      </footer>
     </main>
   );
 }
