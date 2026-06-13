@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import BountyCard from "../components/BountyCard.jsx";
 import { requestBytes, requestJson } from "../lib/api.js";
+import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
 import { useApp } from "../context/AppContext.jsx";
 import { computeSha256Hex } from "../lib/sha256.js";
 import {
@@ -375,6 +376,23 @@ export default function BountyDetailPage() {
 
   const handleJoinBounty = useCallback(() => {
     void runAction(async () => {
+      const arcConfig = await getArcConfig();
+      const arcBounty = await getArcBountyByInfoHash({
+        token,
+        torrentInfoHash: bounty.torrentInfoHash,
+      });
+      const transactionPayload = await requestJson("/arc/transactions/claim-bounty", {
+        method: "POST",
+        token,
+        body: { bountyId: arcBounty.bountyId },
+      });
+
+      setStatusMessage("Claiming the Arc bounty.");
+      await sendPreparedArcTransaction({
+        arcConfig,
+        transaction: transactionPayload.transaction,
+      });
+
       const payload = await requestJson(`/bounties/${bountyId}/hunt`, {
         method: "POST",
         token,
@@ -384,7 +402,7 @@ export default function BountyDetailPage() {
       await refreshDetail({ quiet: true });
       setStatusMessage("Joined bounty as a hunter.");
     });
-  }, [bountyId, mergeBounty, refreshDetail, runAction, setStatusMessage, token]);
+  }, [bounty?.torrentInfoHash, bountyId, mergeBounty, refreshDetail, runAction, setStatusMessage, token]);
 
   const handleCreateContract = useCallback(() => {
     void runAction(async () => {
@@ -473,6 +491,26 @@ export default function BountyDetailPage() {
       }
 
       const fileSha256 = await computeSha256Hex(contentBytes);
+      const arcConfig = await getArcConfig();
+      const arcBounty = await getArcBountyByInfoHash({
+        token,
+        torrentInfoHash: bounty.torrentInfoHash,
+      });
+      const transactionPayload = await requestJson("/arc/transactions/submit-delivery", {
+        method: "POST",
+        token,
+        body: {
+          bountyId: arcBounty.bountyId,
+          deliveryHash: fileSha256,
+          walrusBlobId: "",
+        },
+      });
+
+      setStatusMessage("Submitting delivery hash to Arc.");
+      await sendPreparedArcTransaction({
+        arcConfig,
+        transaction: transactionPayload.transaction,
+      });
 
       await requestJson(`/contracts/${activeContract.id}/delivery-commitment`, {
         method: "POST",
@@ -658,6 +696,28 @@ export default function BountyDetailPage() {
             downloadedBytes: getExpectedTorrentPayloadSize(loadedTorrentMetadata) ?? current.downloadedBytes,
             fileSha256,
           }));
+
+          if (fileSha256 === expectedSha256) {
+            const arcConfig = await getArcConfig();
+            const arcBounty = await getArcBountyByInfoHash({
+              token,
+              torrentInfoHash: bounty.torrentInfoHash,
+            });
+            const transactionPayload = await requestJson("/arc/transactions/confirm-delivery", {
+              method: "POST",
+              token,
+              body: {
+                bountyId: arcBounty.bountyId,
+                walrusBlobId: "",
+              },
+            });
+
+            setStatusMessage("Confirming delivery on Arc.");
+            await sendPreparedArcTransaction({
+              arcConfig,
+              transaction: transactionPayload.transaction,
+            });
+          }
 
           let latestContract = (await requestJson(`/contracts/${contractId}/delivery-confirmation`, {
             method: "POST",

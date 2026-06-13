@@ -9,7 +9,7 @@ import {
 } from "react";
 import { formatBytes, parseTorrentFile, torrentToBase64 } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
-import { sendWalletTransaction, switchToArc, waitForWalletTransaction } from "../lib/arc-wallet.js";
+import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
 
 const AppContext = createContext(null);
 
@@ -199,7 +199,7 @@ export function AppProvider({ children }) {
       }
 
       const rewardAmountUnits = Math.round(rewardAmount * 1_000_000);
-      const arcConfigPayload = await requestJson("/arc/config");
+      const arcConfig = await getArcConfig();
       const transactionPayload = await requestJson("/arc/transactions/create-bounty", {
         method: "POST",
         token,
@@ -211,15 +211,18 @@ export function AppProvider({ children }) {
       });
 
       setStatusMessage("Switching wallet to Arc Testnet.");
-      await switchToArc(arcConfigPayload.arc);
 
       setStatusMessage("Approving USDC for the Arc escrow.");
-      const approvalTxHash = await sendWalletTransaction(transactionPayload.approvalTransaction);
-      await waitForWalletTransaction(approvalTxHash);
+      const approvalTxHash = await sendPreparedArcTransaction({
+        arcConfig,
+        transaction: transactionPayload.approvalTransaction,
+      });
 
       setStatusMessage("Creating Arc bounty escrow.");
-      const createTxHash = await sendWalletTransaction(transactionPayload.createBountyTransaction);
-      await waitForWalletTransaction(createTxHash);
+      const createTxHash = await sendPreparedArcTransaction({
+        arcConfig,
+        transaction: transactionPayload.createBountyTransaction,
+      });
 
       const payload = await requestJson("/bounties", {
         method: "POST",
@@ -237,7 +240,7 @@ export function AppProvider({ children }) {
             chain: "arc",
             approvalTxHash,
             createTxHash,
-            escrowContractAddress: arcConfigPayload.arc.escrowContractAddress,
+            escrowContractAddress: arcConfig.escrowContractAddress,
           },
           tags: ["arc"],
           torrentFileBase64: torrentBase64,
@@ -275,6 +278,28 @@ export function AppProvider({ children }) {
     setLoading(true);
 
     try {
+      const bounty = bounties.find((record) => record.id === bountyId);
+      if (!bounty) {
+        throw new Error("Bounty not found.");
+      }
+
+      const arcConfig = await getArcConfig();
+      const arcBounty = await getArcBountyByInfoHash({
+        token,
+        torrentInfoHash: bounty.torrentInfoHash,
+      });
+      const transactionPayload = await requestJson("/arc/transactions/claim-bounty", {
+        method: "POST",
+        token,
+        body: { bountyId: arcBounty.bountyId },
+      });
+
+      setStatusMessage("Claiming the Arc bounty.");
+      await sendPreparedArcTransaction({
+        arcConfig,
+        transaction: transactionPayload.transaction,
+      });
+
       const payload = await requestJson(`/bounties/${bountyId}/hunt`, {
         method: "POST",
         token,
