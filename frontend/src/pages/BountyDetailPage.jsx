@@ -126,6 +126,19 @@ function getTrackerAnnounceUrls(health) {
   return [...new Set(announceUrls.filter((value) => typeof value === "string" && value.trim()))];
 }
 
+function getWebTorrentRtcConfig(health) {
+  const rtcConfig = health?.webTorrent?.rtcConfig;
+  const iceServers = Array.isArray(rtcConfig?.iceServers) ? rtcConfig.iceServers : [];
+
+  if (iceServers.length === 0) {
+    return null;
+  }
+
+  return {
+    iceServers,
+  };
+}
+
 function getExpectedTorrentPayloadSize(torrentMetadata) {
   if (!torrentMetadata) {
     return null;
@@ -172,6 +185,7 @@ async function createDeliverySeedTorrent({
   expectedInfoHash,
   trackerAnnounceUrls,
   clientKey,
+  rtcConfig,
 }) {
   const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
     type: "application/octet-stream",
@@ -179,6 +193,7 @@ async function createDeliverySeedTorrent({
   const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
   const metadataTorrent = await addTorrent(trackerOnlyTorrentBytes, {
     clientKey,
+    rtcConfig,
     announce: trackerAnnounceUrls,
   });
 
@@ -248,6 +263,7 @@ export default function BountyDetailPage() {
   const isJoinedHunter = Boolean(currentUser && bountyHunters.some((hunter) => hunter.userId === currentUser.id));
   const isParticipant = Boolean(token && currentUser && (isCreator || isJoinedHunter));
   const trackerAnnounceUrls = useMemo(() => getTrackerAnnounceUrls(health), [health]);
+  const webTorrentRtcConfig = useMemo(() => getWebTorrentRtcConfig(health), [health]);
   const canUseWebTorrentTransfer = trackerAnnounceUrls.length > 0;
   const activeContract = useMemo(
     () => getLatestById(contracts, bounty?.activeContractIds ?? []),
@@ -627,6 +643,7 @@ export default function BountyDetailPage() {
         expectedInfoHash: bounty?.torrentInfoHash,
         trackerAnnounceUrls,
         clientKey: `seed:${activeContract.id}`,
+        rtcConfig: webTorrentRtcConfig,
       });
 
       hunterSeedTorrentRef.current = torrent;
@@ -649,6 +666,18 @@ export default function BountyDetailPage() {
         setDeliverySeedStatus((current) => ({
           ...current,
           message: error.message ?? String(error),
+        }));
+      });
+      torrent.on("trackerAnnounce", () => {
+        setDeliverySeedStatus((current) => ({
+          ...current,
+          message: "Announced to tracker. Keep this tab open while the requester downloads.",
+        }));
+      });
+      torrent.on("noPeers", (source) => {
+        setDeliverySeedStatus((current) => ({
+          ...current,
+          message: `No peers returned by ${source} yet.`,
         }));
       });
       torrent.on("error", (error) => {
@@ -682,6 +711,7 @@ export default function BountyDetailPage() {
     setStatusMessage,
     token,
     trackerAnnounceUrls,
+    webTorrentRtcConfig,
   ]);
 
   const handleStartRequesterDownload = useCallback(() => {
@@ -730,6 +760,7 @@ export default function BountyDetailPage() {
       const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
       const torrent = await addTorrent(trackerOnlyTorrentBytes, {
         clientKey: `download:${activeContract.id}`,
+        rtcConfig: webTorrentRtcConfig,
         announce: trackerAnnounceUrls,
       });
       requesterDownloadTorrentRef.current = torrent;
@@ -748,6 +779,18 @@ export default function BountyDetailPage() {
 
       torrent.on("wire", () => updateDownloadStatus("downloading"));
       torrent.on("download", () => updateDownloadStatus("downloading"));
+      torrent.on("trackerAnnounce", () => {
+        setDeliveryDownloadStatus((current) => ({
+          ...current,
+          phase: "downloading",
+        }));
+      });
+      torrent.on("noPeers", (source) => {
+        setProtocolError(`No peers returned by ${source} yet. Keep the hunter seeding tab open and try again.`);
+      });
+      torrent.on("warning", (error) => {
+        setProtocolError(error.message ?? String(error));
+      });
       torrent.on("error", (error) => {
         setProtocolError(error.message ?? String(error));
         setDeliveryDownloadStatus((current) => ({
@@ -874,6 +917,7 @@ export default function BountyDetailPage() {
     setStatusMessage,
     token,
     trackerAnnounceUrls,
+    webTorrentRtcConfig,
     waitForResolvedContract,
   ]);
 

@@ -2,6 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createWebTorrentTrackerServiceFromEnv, WebTorrentTrackerService } from "../src/webtorrent-tracker-service.js";
 
+const defaultRtcConfig = {
+  iceServers: [
+    {
+      urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:global.stun.twilio.com:3478",
+      ],
+    },
+  ],
+};
+
 test("WebTorrent tracker advertises a same-origin local app port by default", () => {
   const service = createWebTorrentTrackerServiceFromEnv({
     HOST: "127.0.0.1",
@@ -14,6 +25,7 @@ test("WebTorrent tracker advertises a same-origin local app port by default", ()
   assert.deepEqual(service.getPublicConfig(), {
     enabled: true,
     announceUrls: ["ws://127.0.0.1:3000/tracker"],
+    rtcConfig: defaultRtcConfig,
   });
 });
 
@@ -27,6 +39,23 @@ test("WebTorrent tracker advertises Render HTTPS websocket endpoint", () => {
   assert.deepEqual(service.getPublicConfig(), {
     enabled: true,
     announceUrls: ["wss://bit-lazarus.onrender.com/tracker"],
+    rtcConfig: defaultRtcConfig,
+  });
+});
+
+test("WebTorrent tracker advertises configured ICE servers", () => {
+  const service = createWebTorrentTrackerServiceFromEnv({
+    HOST: "0.0.0.0",
+    PORT: "10000",
+    RENDER_EXTERNAL_HOSTNAME: "bit-lazarus.onrender.com",
+    WEBTORRENT_ICE_SERVERS: "stun:stun.example:3478,turn:turn.example:3478",
+  });
+
+  assert.deepEqual(service.getPublicConfig().rtcConfig, {
+    iceServers: [
+      { urls: "stun:stun.example:3478" },
+      { urls: "turn:turn.example:3478" },
+    ],
   });
 });
 

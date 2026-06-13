@@ -29,6 +29,26 @@ function normalizePublicPort(value) {
   return parsed;
 }
 
+function parseIceServers(value) {
+  const urls = String(value ?? "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+  if (urls.length === 0) {
+    return [
+      {
+        urls: [
+          "stun:stun.l.google.com:19302",
+          "stun:global.stun.twilio.com:3478",
+        ],
+      },
+    ];
+  }
+
+  return urls.map((url) => ({ urls: url }));
+}
+
 export class WebTorrentTrackerService {
   constructor({
     listenHost = "127.0.0.1",
@@ -38,6 +58,7 @@ export class WebTorrentTrackerService {
     publicScheme = "ws",
     announcePath = "/tracker",
     intervalMs = 30_000,
+    iceServers = null,
   } = {}) {
     this.listenHost = listenHost;
     this.listenPort = listenPort;
@@ -46,6 +67,7 @@ export class WebTorrentTrackerService {
     this.publicScheme = publicScheme;
     this.announcePath = normalizePath(announcePath);
     this.intervalMs = intervalMs;
+    this.iceServers = iceServers ?? parseIceServers();
     this.server = null;
     this.httpServer = null;
     this.handleUpgrade = null;
@@ -64,6 +86,9 @@ export class WebTorrentTrackerService {
     return {
       enabled: true,
       announceUrls: [this.getAnnounceUrl()],
+      rtcConfig: {
+        iceServers: this.iceServers,
+      },
     };
   }
 
@@ -170,6 +195,7 @@ export function createWebTorrentTrackerServiceFromEnv(environment = process.env,
   );
   const announcePath = environment.WEBTORRENT_TRACKER_PATH || "/tracker";
   const intervalMs = Number.parseInt(environment.WEBTORRENT_TRACKER_INTERVAL_MS ?? "30000", 10);
+  const iceServers = parseIceServers(environment.WEBTORRENT_ICE_SERVERS);
 
   return new WebTorrentTrackerService({
     listenHost,
@@ -179,5 +205,6 @@ export function createWebTorrentTrackerServiceFromEnv(environment = process.env,
     publicScheme,
     announcePath,
     intervalMs,
+    iceServers,
   });
 }

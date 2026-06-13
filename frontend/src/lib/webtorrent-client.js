@@ -19,10 +19,13 @@ async function loadWebTorrentConstructor() {
   return webTorrentCtorPromise;
 }
 
-export async function getWebTorrentClient(clientKey = "default") {
+export async function getWebTorrentClient(clientKey = "default", options = {}) {
   if (!browserClients.has(clientKey)) {
     const WebTorrent = await loadWebTorrentConstructor();
     browserClients.set(clientKey, new WebTorrent({
+      tracker: {
+        rtcConfig: options.rtcConfig,
+      },
       seedOutgoingConnections: true,
     }));
   }
@@ -31,8 +34,8 @@ export async function getWebTorrentClient(clientKey = "default") {
 }
 
 export async function addTorrent(source, options = {}) {
-  const { clientKey = "default", ...torrentOptions } = options;
-  const client = await getWebTorrentClient(clientKey);
+  const { clientKey = "default", rtcConfig = null, ...torrentOptions } = options;
+  const client = await getWebTorrentClient(clientKey, { rtcConfig });
 
   return new Promise((resolve, reject) => {
     const handleError = (error) => {
@@ -104,8 +107,8 @@ export async function loadTorrentData(torrent, input) {
 }
 
 export async function seedTorrent(input, options = {}) {
-  const { clientKey = "default", ...torrentOptions } = options;
-  const client = await getWebTorrentClient(clientKey);
+  const { clientKey = "default", rtcConfig = null, ...torrentOptions } = options;
+  const client = await getWebTorrentClient(clientKey, { rtcConfig });
 
   return new Promise((resolve, reject) => {
     const handleError = (error) => {
