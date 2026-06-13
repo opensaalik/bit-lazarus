@@ -16,9 +16,6 @@ import { privateKeyToAccount } from "viem/accounts";
 import { normalize } from "viem/ens";
 import { sepolia } from "viem/chains";
 
-const SEPOLIA_ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
-const SEPOLIA_NAME_WRAPPER_ADDRESS = "0x0635513f179D50A207757E05759CbD106d7dFcE8";
-const SEPOLIA_PUBLIC_RESOLVER_ADDRESS = "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5";
 const SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS = "0xdedb92913a25abe1f7bcdd85d8a344a43b398b67";
 const WALRUS_BLOB_TEXT_KEY = "bitlazarus.walrus.blob";
 const ENS_V2_STATUS_REGISTERED = 2;
@@ -35,18 +32,6 @@ const ENS_V2_REGISTRATION_ROLE_BITMAP =
   ENS_V2_ROLE_SET_RESOLVER |
   ENS_V2_ROLE_SET_RESOLVER_ADMIN |
   ENS_V2_ROLE_CAN_TRANSFER_ADMIN;
-
-const ensRegistryAbi = parseAbi([
-  "function owner(bytes32 node) view returns (address)",
-  "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setSubnodeRecord(bytes32 node, bytes32 label, address owner, address resolver, uint64 ttl)",
-]);
-
-const nameWrapperAbi = parseAbi([
-  "function ownerOf(uint256 id) view returns (address)",
-  "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setSubnodeRecord(bytes32 parentNode, string label, address owner, address resolver, uint64 ttl, uint32 fuses, uint64 expiry) returns (bytes32)",
-]);
 
 const publicResolverAbi = parseAbi([
   "function setText(bytes32 node, string key, string value)",
@@ -151,246 +136,6 @@ function normalizeBigInt(value, fieldName) {
 
   assertString(value, fieldName);
   return BigInt(value.trim());
-}
-
-function getNodeTokenId(node) {
-  return BigInt(node);
-}
-
-export class MockEnsLocatorAdapter {
-  constructor({ parentName = "lazarus.eth", network = "sepolia" } = {}) {
-    this.parentName = parentName;
-    this.network = network;
-    this.records = new Map();
-  }
-
-  deriveName(torrentInfoHash) {
-    return `b-${torrentInfoHash.slice(0, 16)}.${this.parentName}`;
-  }
-
-  async ensureSubname({ torrentInfoHash }) {
-    const ensName = this.deriveName(torrentInfoHash);
-
-    if (!this.records.has(ensName)) {
-      this.records.set(ensName, {
-        network: this.network,
-        textRecords: {},
-      });
-    }
-
-    return {
-      ensName,
-      ensNetwork: this.network,
-    };
-  }
-
-  async setWalrusBlob({ ensName, walrusBlobId }) {
-    const record = this.records.get(ensName) ?? {
-      network: this.network,
-      textRecords: {},
-    };
-    record.textRecords[WALRUS_BLOB_TEXT_KEY] = walrusBlobId;
-    this.records.set(ensName, record);
-    return record;
-  }
-}
-
-export class ViemEnsLocatorAdapter {
-  constructor({
-    parentName = "lazarus.eth",
-    network = "sepolia",
-    rpcUrl,
-    privateKey,
-    registryAddress = SEPOLIA_ENS_REGISTRY_ADDRESS,
-    nameWrapperAddress = SEPOLIA_NAME_WRAPPER_ADDRESS,
-    publicResolverAddress = SEPOLIA_PUBLIC_RESOLVER_ADDRESS,
-    subnameOwner = null,
-    ttl = 0,
-    fuses = 0,
-    expiry = 0,
-    chain = sepolia,
-    publicClient = null,
-    walletClient = null,
-    account = null,
-  } = {}) {
-    if (network !== "sepolia") {
-      throw new Error("ViemEnsLocatorAdapter currently supports ENS writes on Sepolia only");
-    }
-
-    this.parentName = normalizeParentName(parentName);
-    this.network = network;
-    this.registryAddress = normalizeAddress(registryAddress, "registryAddress");
-    this.nameWrapperAddress = normalizeAddress(nameWrapperAddress, "nameWrapperAddress");
-    this.publicResolverAddress = normalizeAddress(publicResolverAddress, "publicResolverAddress");
-    this.ttl = BigInt(ttl);
-    this.fuses = Number(fuses);
-    this.expiry = BigInt(expiry);
-    this.chain = chain;
-    this.account = account ?? privateKeyToAccount(normalizePrivateKey(privateKey));
-    this.subnameOwner = subnameOwner ? normalizeAddress(subnameOwner, "subnameOwner") : this.account.address;
-    const transport = rpcUrl ? http(rpcUrl) : null;
-    this.publicClient = publicClient ?? createPublicClient({ chain, transport });
-    this.walletClient = walletClient ?? createWalletClient({ account: this.account, chain, transport });
-  }
-
-  deriveLabel(torrentInfoHash) {
-    return `b-${torrentInfoHash.slice(0, 16)}`;
-  }
-
-  deriveName(torrentInfoHash) {
-    return normalize(`${this.deriveLabel(torrentInfoHash)}.${this.parentName}`);
-  }
-
-  async ensureSubname({ torrentInfoHash }) {
-    const ensName = this.deriveName(torrentInfoHash);
-    const label = this.deriveLabel(torrentInfoHash);
-    const parentNode = namehash(this.parentName);
-    const childNode = namehash(ensName);
-    const childOwner = await this.readRegistryOwner(childNode);
-
-    if (!isAddressEqual(childOwner, zeroAddress)) {
-      return {
-        ensName,
-        ensNetwork: this.network,
-        created: false,
-        owner: childOwner,
-        resolver: this.publicResolverAddress,
-      };
-    }
-
-    const parentOwner = await this.readRegistryOwner(parentNode);
-    if (isAddressEqual(parentOwner, zeroAddress)) {
-      throw new Error(`ENS parent has no registry owner: ${this.parentName}`);
-    }
-
-    const isWrappedParent = isAddressEqual(parentOwner, this.nameWrapperAddress);
-    const hash = isWrappedParent
-      ? await this.createWrappedSubname({ parentNode, label })
-      : await this.createRegistrySubname({ parentNode, label, parentOwner });
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-
-    return {
-      ensName,
-      ensNetwork: this.network,
-      created: true,
-      owner: this.subnameOwner,
-      resolver: this.publicResolverAddress,
-      transactionHash: hash,
-      blockNumber: receipt.blockNumber?.toString?.() ?? null,
-    };
-  }
-
-  async setWalrusBlob({ ensName, walrusBlobId }) {
-    const normalizedEnsName = normalize(ensName);
-    const hash = await this.walletClient.writeContract({
-      address: this.publicResolverAddress,
-      abi: publicResolverAbi,
-      functionName: "setText",
-      args: [namehash(normalizedEnsName), WALRUS_BLOB_TEXT_KEY, walrusBlobId],
-      account: this.account,
-      chain: this.chain,
-    });
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-
-    return {
-      ensName: normalizedEnsName,
-      ensNetwork: this.network,
-      textRecords: {
-        [WALRUS_BLOB_TEXT_KEY]: walrusBlobId,
-      },
-      transactionHash: hash,
-      blockNumber: receipt.blockNumber?.toString?.() ?? null,
-    };
-  }
-
-  async createRegistrySubname({ parentNode, label, parentOwner }) {
-    await this.assertRegistryAuthorized(parentOwner);
-
-    return this.walletClient.writeContract({
-      address: this.registryAddress,
-      abi: ensRegistryAbi,
-      functionName: "setSubnodeRecord",
-      args: [
-        parentNode,
-        labelhash(label),
-        this.subnameOwner,
-        this.publicResolverAddress,
-        this.ttl,
-      ],
-      account: this.account,
-      chain: this.chain,
-    });
-  }
-
-  async createWrappedSubname({ parentNode, label }) {
-    const wrappedOwner = await this.publicClient.readContract({
-      address: this.nameWrapperAddress,
-      abi: nameWrapperAbi,
-      functionName: "ownerOf",
-      args: [getNodeTokenId(parentNode)],
-    });
-    await this.assertWrapperAuthorized(wrappedOwner);
-
-    return this.walletClient.writeContract({
-      address: this.nameWrapperAddress,
-      abi: nameWrapperAbi,
-      functionName: "setSubnodeRecord",
-      args: [
-        parentNode,
-        label,
-        this.subnameOwner,
-        this.publicResolverAddress,
-        this.ttl,
-        this.fuses,
-        this.expiry,
-      ],
-      account: this.account,
-      chain: this.chain,
-    });
-  }
-
-  async assertRegistryAuthorized(parentOwner) {
-    if (isAddressEqual(parentOwner, this.account.address)) {
-      return;
-    }
-
-    const approved = await this.publicClient.readContract({
-      address: this.registryAddress,
-      abi: ensRegistryAbi,
-      functionName: "isApprovedForAll",
-      args: [parentOwner, this.account.address],
-    });
-
-    if (!approved) {
-      throw new Error(`ENS signer ${this.account.address} is not authorized for parent ${this.parentName}`);
-    }
-  }
-
-  async assertWrapperAuthorized(wrappedOwner) {
-    if (isAddressEqual(wrappedOwner, this.account.address)) {
-      return;
-    }
-
-    const approved = await this.publicClient.readContract({
-      address: this.nameWrapperAddress,
-      abi: nameWrapperAbi,
-      functionName: "isApprovedForAll",
-      args: [wrappedOwner, this.account.address],
-    });
-
-    if (!approved) {
-      throw new Error(`ENS signer ${this.account.address} is not authorized for wrapped parent ${this.parentName}`);
-    }
-  }
-
-  async readRegistryOwner(node) {
-    return getAddress(await this.publicClient.readContract({
-      address: this.registryAddress,
-      abi: ensRegistryAbi,
-      functionName: "owner",
-      args: [node],
-    }));
-  }
 }
 
 export class ViemEnsV2LocatorAdapter {
@@ -557,68 +302,48 @@ export class ViemEnsV2LocatorAdapter {
 }
 
 export function createEnsLocatorAdapterFromEnv(environment = process.env) {
-  const adapterMode = environment.ENS_ADAPTER ?? "auto";
-  const parentName = environment.ENS_PARENT_NAME ?? "lazarus.eth";
+  const parentName = environment.ENS_PARENT_NAME;
   const network = environment.ENS_NETWORK ?? "sepolia";
-
-  if (adapterMode === "mock") {
-    return new MockEnsLocatorAdapter({ parentName, network });
-  }
-
   const rpcUrl = environment.ENS_RPC_URL ?? environment.ETH_RPC_URL;
   const privateKey = environment.ENS_PRIVATE_KEY ?? environment.PRIVATE_KEY;
 
-  if (adapterMode === "viem" || adapterMode === "ensv2" || adapterMode === "production") {
-    if (!rpcUrl) {
-      throw new Error(`ENS_RPC_URL or ETH_RPC_URL is required when ENS_ADAPTER=${adapterMode}`);
-    }
-
-    if (!privateKey) {
-      throw new Error(`ENS_PRIVATE_KEY or PRIVATE_KEY is required when ENS_ADAPTER=${adapterMode}`);
-    }
+  if (!parentName) {
+    throw new Error("ENS_PARENT_NAME is required");
   }
 
-  if (adapterMode === "ensv2") {
-    return new ViemEnsV2LocatorAdapter({
-      parentName,
-      network,
-      rpcUrl,
-      privateKey,
-      parentRegistryAddress: environment.ENS_V2_PARENT_REGISTRY_ADDRESS ?? SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS,
-      subregistryAddress: environment.ENS_V2_SUBREGISTRY_ADDRESS ?? null,
-      resolverAddress: environment.ENS_V2_RESOLVER_ADDRESS ?? null,
-      subnameOwner: environment.ENS_SUBNAME_OWNER ?? null,
-      roleBitmap: environment.ENS_V2_REGISTRATION_ROLE_BITMAP ?? ENS_V2_REGISTRATION_ROLE_BITMAP,
-      expirySeconds: environment.ENS_V2_EXPIRY_SECONDS ?? ENS_V2_DEFAULT_EXPIRY_SECONDS,
-    });
+  if (!rpcUrl) {
+    throw new Error("ENS_RPC_URL or ETH_RPC_URL is required");
   }
 
-  if (rpcUrl && privateKey) {
-    return new ViemEnsLocatorAdapter({
-      parentName,
-      network,
-      rpcUrl,
-      privateKey,
-      registryAddress: environment.ENS_REGISTRY_ADDRESS ?? SEPOLIA_ENS_REGISTRY_ADDRESS,
-      nameWrapperAddress: environment.ENS_NAME_WRAPPER_ADDRESS ?? SEPOLIA_NAME_WRAPPER_ADDRESS,
-      publicResolverAddress: environment.ENS_PUBLIC_RESOLVER_ADDRESS ?? SEPOLIA_PUBLIC_RESOLVER_ADDRESS,
-      subnameOwner: environment.ENS_SUBNAME_OWNER ?? null,
-      ttl: environment.ENS_RECORD_TTL ?? 0,
-      fuses: environment.ENS_NAMEWRAPPER_FUSES ?? 0,
-      expiry: environment.ENS_NAMEWRAPPER_EXPIRY ?? 0,
-    });
+  if (!privateKey) {
+    throw new Error("ENS_PRIVATE_KEY or PRIVATE_KEY is required");
   }
 
-  return new MockEnsLocatorAdapter({ parentName, network });
+  return new ViemEnsV2LocatorAdapter({
+    parentName,
+    network,
+    rpcUrl,
+    privateKey,
+    parentRegistryAddress: environment.ENS_V2_PARENT_REGISTRY_ADDRESS ?? SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS,
+    subregistryAddress: environment.ENS_V2_SUBREGISTRY_ADDRESS ?? null,
+    resolverAddress: environment.ENS_V2_RESOLVER_ADDRESS ?? null,
+    subnameOwner: environment.ENS_SUBNAME_OWNER ?? null,
+    roleBitmap: environment.ENS_V2_REGISTRATION_ROLE_BITMAP ?? ENS_V2_REGISTRATION_ROLE_BITMAP,
+    expirySeconds: environment.ENS_V2_EXPIRY_SECONDS ?? ENS_V2_DEFAULT_EXPIRY_SECONDS,
+  });
 }
 
 export class ResourceLocatorService {
   constructor({
     dataDir = path.resolve("data", "resources"),
-    ensAdapter = new MockEnsLocatorAdapter(),
+    ensAdapter,
     walrusGatewayBaseUrl = "https://aggregator.walrus-testnet.walrus.space/v1/blobs",
     now = () => new Date().toISOString(),
   } = {}) {
+    if (!ensAdapter) {
+      throw new Error("ensAdapter is required");
+    }
+
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "resources.json");
     this.ensAdapter = ensAdapter;

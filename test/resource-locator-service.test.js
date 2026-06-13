@@ -5,9 +5,7 @@ import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import {
   createEnsLocatorAdapterFromEnv,
-  MockEnsLocatorAdapter,
   ResourceLocatorService,
-  ViemEnsLocatorAdapter,
   ViemEnsV2LocatorAdapter,
 } from "../src/resource-locator-service.js";
 
@@ -21,11 +19,64 @@ async function withTempDir(run) {
   }
 }
 
+function createTestEnsV2Adapter({ parentName = "lazarus.eth", reads = [], writes = [] } = {}) {
+  const account = {
+    address: "0x00000000000000000000000000000000000000aa",
+  };
+  const childRegistry = "0x00000000000000000000000000000000000000bb";
+  const resolver = "0x00000000000000000000000000000000000000cc";
+
+  return {
+    adapter: new ViemEnsV2LocatorAdapter({
+      parentName,
+      publicClient: {
+        async readContract(call) {
+          reads.push(call);
+          if (call.functionName === "getSubregistry") {
+            return childRegistry;
+          }
+          if (call.functionName === "getResolver") {
+            return resolver;
+          }
+          if (call.functionName === "getState") {
+            return {
+              status: 0,
+              expiry: 0n,
+              latestOwner: "0x0000000000000000000000000000000000000000",
+              tokenId: 0n,
+              resource: 0n,
+            };
+          }
+
+          throw new Error(`unexpected read: ${call.functionName}`);
+        },
+        async waitForTransactionReceipt({ hash }) {
+          return { transactionHash: hash, blockNumber: 789n };
+        },
+      },
+      walletClient: {
+        async writeContract(call) {
+          writes.push(call);
+          return "0x123789";
+        },
+      },
+      account,
+      now: () => 1_700_000_000,
+    }),
+    account,
+    childRegistry,
+    resolver,
+    reads,
+    writes,
+  };
+}
+
 test("resource locator creates one deterministic ENS subname per unique torrent", async () => {
   await withTempDir(async (tempDir) => {
+    const { adapter } = createTestEnsV2Adapter();
     const service = new ResourceLocatorService({
       dataDir: tempDir,
-      ensAdapter: new MockEnsLocatorAdapter({ parentName: "lazarus.eth", network: "sepolia" }),
+      ensAdapter: adapter,
     });
     await service.init();
 
@@ -48,8 +99,10 @@ test("resource locator creates one deterministic ENS subname per unique torrent"
 
 test("resource locator resolves to torrent before archive and Walrus after archive", async () => {
   await withTempDir(async (tempDir) => {
+    const { adapter } = createTestEnsV2Adapter();
     const service = new ResourceLocatorService({
       dataDir: tempDir,
+      ensAdapter: adapter,
       walrusGatewayBaseUrl: "https://walrus.example/blobs",
     });
     await service.init();
@@ -78,132 +131,8 @@ test("resource locator resolves to torrent before archive and Walrus after archi
   });
 });
 
-test("viem ENS adapter creates unwrapped subnames through the ENS registry", async () => {
-  const account = {
-    address: "0x00000000000000000000000000000000000000aa",
-  };
-  const writes = [];
-  let ownerReadCount = 0;
-  const publicClient = {
-    async readContract({ functionName }) {
-      if (functionName === "owner") {
-        ownerReadCount += 1;
-        return ownerReadCount === 1
-          ? "0x0000000000000000000000000000000000000000"
-          : account.address;
-      }
-
-      throw new Error(`unexpected read: ${functionName}`);
-    },
-    async waitForTransactionReceipt({ hash }) {
-      return { transactionHash: hash, blockNumber: 123n };
-    },
-  };
-  const walletClient = {
-    async writeContract(call) {
-      writes.push(call);
-      return "0xabc123";
-    },
-  };
-  const adapter = new ViemEnsLocatorAdapter({
-    parentName: "lazarus.eth",
-    publicClient,
-    walletClient,
-    account,
-  });
-
-  const result = await adapter.ensureSubname({
-    torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
-  });
-
-  assert.equal(result.ensName, "b-0123456789abcdef.lazarus.eth");
-  assert.equal(result.created, true);
-  assert.equal(result.transactionHash, "0xabc123");
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].functionName, "setSubnodeRecord");
-  assert.equal(writes[0].args[2], account.address);
-});
-
-test("viem ENS adapter writes Walrus blob text records to the resolver", async () => {
-  const account = {
-    address: "0x00000000000000000000000000000000000000aa",
-  };
-  const writes = [];
-  const adapter = new ViemEnsLocatorAdapter({
-    parentName: "lazarus.eth",
-    publicClient: {
-      async readContract() {
-        throw new Error("should not read for setWalrusBlob");
-      },
-      async waitForTransactionReceipt({ hash }) {
-        return { transactionHash: hash, blockNumber: 456n };
-      },
-    },
-    walletClient: {
-      async writeContract(call) {
-        writes.push(call);
-        return "0xdef456";
-      },
-    },
-    account,
-  });
-
-  const result = await adapter.setWalrusBlob({
-    ensName: "b-0123456789abcdef.lazarus.eth",
-    walrusBlobId: "walrus_blob_0123456789",
-  });
-
-  assert.equal(result.transactionHash, "0xdef456");
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].functionName, "setText");
-  assert.equal(writes[0].args[1], "bitlazarus.walrus.blob");
-  assert.equal(writes[0].args[2], "walrus_blob_0123456789");
-});
-
 test("viem ENSv2 adapter registers subnames through the parent child registry", async () => {
-  const account = {
-    address: "0x00000000000000000000000000000000000000aa",
-  };
-  const childRegistry = "0x00000000000000000000000000000000000000bb";
-  const resolver = "0x00000000000000000000000000000000000000cc";
-  const reads = [];
-  const writes = [];
-  const adapter = new ViemEnsV2LocatorAdapter({
-    parentName: "lazarus.eth",
-    publicClient: {
-      async readContract(call) {
-        reads.push(call);
-        if (call.functionName === "getSubregistry") {
-          return childRegistry;
-        }
-        if (call.functionName === "getResolver") {
-          return resolver;
-        }
-        if (call.functionName === "getState") {
-          return {
-            status: 0,
-            expiry: 0n,
-            latestOwner: "0x0000000000000000000000000000000000000000",
-            tokenId: 0n,
-            resource: 0n,
-          };
-        }
-
-        throw new Error(`unexpected read: ${call.functionName}`);
-      },
-      async waitForTransactionReceipt({ hash }) {
-        return { transactionHash: hash, blockNumber: 789n };
-      },
-    },
-    walletClient: {
-      async writeContract(call) {
-        writes.push(call);
-        return "0x123789";
-      },
-    },
-    account,
-    now: () => 1_700_000_000,
-  });
+  const { account, adapter, childRegistry, reads, resolver, writes } = createTestEnsV2Adapter();
 
   const result = await adapter.ensureSubname({
     torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
@@ -225,40 +154,14 @@ test("viem ENSv2 adapter registers subnames through the parent child registry", 
 });
 
 test("viem ENSv2 adapter writes Walrus blob text records to the discovered resolver", async () => {
-  const account = {
-    address: "0x00000000000000000000000000000000000000aa",
-  };
-  const resolver = "0x00000000000000000000000000000000000000cc";
-  const writes = [];
-  const adapter = new ViemEnsV2LocatorAdapter({
-    parentName: "lazarus.eth",
-    publicClient: {
-      async readContract(call) {
-        if (call.functionName === "getResolver") {
-          return resolver;
-        }
-
-        throw new Error(`unexpected read: ${call.functionName}`);
-      },
-      async waitForTransactionReceipt({ hash }) {
-        return { transactionHash: hash, blockNumber: 987n };
-      },
-    },
-    walletClient: {
-      async writeContract(call) {
-        writes.push(call);
-        return "0x987123";
-      },
-    },
-    account,
-  });
+  const { adapter, resolver, writes } = createTestEnsV2Adapter();
 
   const result = await adapter.setWalrusBlob({
     ensName: "b-0123456789abcdef.lazarus.eth",
     walrusBlobId: "walrus_blob_0123456789",
   });
 
-  assert.equal(result.transactionHash, "0x987123");
+  assert.equal(result.transactionHash, "0x123789");
   assert.equal(writes.length, 1);
   assert.equal(writes[0].address, resolver);
   assert.equal(writes[0].functionName, "setText");
@@ -266,9 +169,31 @@ test("viem ENSv2 adapter writes Walrus blob text records to the discovered resol
   assert.equal(writes[0].args[2], "walrus_blob_0123456789");
 });
 
-test("ENS adapter factory fails fast when production mode lacks credentials", () => {
+test("ENS adapter factory always requires production ENSv2 configuration", () => {
   assert.throws(
-    () => createEnsLocatorAdapterFromEnv({ ENS_ADAPTER: "viem", ENS_PARENT_NAME: "lazarus.eth" }),
+    () => createEnsLocatorAdapterFromEnv({ ENS_PARENT_NAME: "lazarus.eth" }),
     /ENS_RPC_URL or ETH_RPC_URL is required/,
   );
+  assert.throws(
+    () => createEnsLocatorAdapterFromEnv({ ENS_PARENT_NAME: "lazarus.eth", ENS_RPC_URL: "https://rpc.example" }),
+    /ENS_PRIVATE_KEY or PRIVATE_KEY is required/,
+  );
+  assert.throws(
+    () => createEnsLocatorAdapterFromEnv({
+      ENS_RPC_URL: "https://rpc.example",
+      ENS_PRIVATE_KEY: `0x${"1".repeat(64)}`,
+    }),
+    /ENS_PARENT_NAME is required/,
+  );
+});
+
+test("ENS adapter factory returns the production ENSv2 adapter", () => {
+  const adapter = createEnsLocatorAdapterFromEnv({
+    ENS_PARENT_NAME: "lazarus.eth",
+    ENS_RPC_URL: "https://rpc.example",
+    ENS_PRIVATE_KEY: `0x${"1".repeat(64)}`,
+  });
+
+  assert.equal(adapter instanceof ViemEnsV2LocatorAdapter, true);
+  assert.equal(adapter.parentName, "lazarus.eth");
 });
