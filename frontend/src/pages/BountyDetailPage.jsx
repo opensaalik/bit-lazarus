@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import BountyCard from "../components/BountyCard.jsx";
+import StatusRune from "../components/StatusRune.jsx";
+import { describeStatus } from "../lib/status.js";
 import { requestBytes, requestJson } from "../lib/api.js";
 import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
 import { useApp } from "../context/AppContext.jsx";
@@ -74,6 +76,30 @@ function getProtocolHeadline({ bounty, activeContract, hunterCount }) {
   }
 
   return "Protocol workspace";
+}
+
+function buildRitualTimeline({ bounty, activeContract, hunterCount }) {
+  const escrowFunded = bounty?.escrowStatus === "FUNDED";
+  const hasContract = Boolean(activeContract);
+  const committed = Boolean(activeContract?.hunterDeliveryFileSha256);
+  const state = String(activeContract?.state ?? "");
+  const verified = state === "DELIVERY_VERIFIED" || state.startsWith("RESOLVED_");
+  const settled = bounty?.status === "COMPLETED" || state === "RESOLVED_SUCCESS";
+
+  const steps = [
+    { title: "Bounty summoned", hint: "A requester raised this bounty from a .torrent file.", done: true },
+    { title: "Escrow sealed", hint: "USDC is locked in the Arc escrow.", done: escrowFunded },
+    { title: "Hunter joined", hint: "A hunter who holds the data answered the call.", done: hunterCount > 0 },
+    { title: "Delivery contract", hint: "The requester locked in a hunter for delivery.", done: hasContract },
+    { title: "File seeded & delivered", hint: "The recovered file is hashed and sent peer-to-peer.", done: committed || verified },
+    { title: "Verified & settled", hint: "SHA-256 matched, archived to Walrus, reward released.", done: settled },
+  ];
+
+  const currentIndex = steps.findIndex((step) => !step.done);
+  return steps.map((step, index) => ({
+    ...step,
+    current: index === currentIndex,
+  }));
 }
 
 function formatProtocolRole({ bounty, currentUser, isJoinedHunter }) {
@@ -890,8 +916,6 @@ export default function BountyDetailPage() {
     });
   }, [activeContract, bounty, runAction, setStatusMessage, token]);
 
-  const activeHunterLabel = activeHunter?.userId ?? "No hunter selected";
-
   if (!token) {
     return (
       <main className="page-main">
@@ -971,24 +995,36 @@ export default function BountyDetailPage() {
           <div className="chip-row">
             <span className="chip">Role: {currentRole}</span>
             <span className="chip">Wallet: {currentUser?.walletType ?? "unknown"}</span>
-            <span className="chip">Escrow: {bounty.escrowStatus}</span>
-            <span className="chip">Delivery: {bounty.deliveryStatus}</span>
-            <span className="chip">Completion: {bounty.completionReadiness}</span>
+            <StatusRune value={bounty.escrowStatus} label={`Escrow · ${describeStatus(bounty.escrowStatus).label}`} />
+            <StatusRune value={bounty.deliveryStatus} label={`Delivery · ${describeStatus(bounty.deliveryStatus).label}`} />
           </div>
 
           {protocolError ? <p className="muted-copy">{protocolError}</p> : null}
           {loadError && bounty ? <p className="muted-copy">{loadError}</p> : null}
 
-          <div className="protocol-list">
-            <div className={`protocol-card${bountyHunters.length > 0 ? " is-active" : ""}`}>
+          <div className="ritual-timeline">
+            {buildRitualTimeline({ bounty, activeContract, hunterCount: bountyHunters.length }).map((step, index) => (
+              <div
+                className={`ritual-step${step.done ? " is-done" : ""}${step.current ? " is-current" : ""}`}
+                key={step.title}
+              >
+                <span className="ritual-node">{step.done ? "✦" : String(index + 1)}</span>
+                <div className="ritual-step-body">
+                  <strong>{step.title}</strong>
+                  <small>{step.hint}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="detail-grid protocol-detail-grid">
+            <div>
               <span>Joined hunters</span>
               <strong>{bountyHunters.length}</strong>
-              <small>{activeHunterLabel}</small>
             </div>
-            <div className={`protocol-card${activeContract ? " is-active" : ""}`}>
+            <div>
               <span>Active contract</span>
-              <strong>{activeContract ? activeContract.state : "No contract yet"}</strong>
-              <small>{activeContract ? activeContract.id : "Requester creates the contract after a hunter joins."}</small>
+              <strong>{activeContract ? <StatusRune value={activeContract.state} /> : "None yet"}</strong>
             </div>
           </div>
 
@@ -996,7 +1032,7 @@ export default function BountyDetailPage() {
             <div className="detail-grid protocol-detail-grid">
               <div>
                 <span>Delivery hash</span>
-                <strong>{activeContract.deliveryHashStatus}</strong>
+                <strong><StatusRune value={activeContract.deliveryHashStatus} /></strong>
               </div>
               <div>
                 <span>Reward</span>
