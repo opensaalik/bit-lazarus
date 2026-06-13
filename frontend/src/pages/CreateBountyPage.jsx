@@ -40,12 +40,12 @@ export default function CreateBountyPage() {
     <main className="page-main">
       <section className="glass-panel stack">
         <div className="panel-head">
-          <p className="eyebrow">Create Bounty</p>
-          <h2>Resurrect a dead torrent</h2>
+          <p className="eyebrow">New bounty</p>
+          <h2>Post a recovery bounty</h2>
         </div>
         <p className="muted-copy">
-          Upload a real .torrent file and set the USDC reward that will settle through Arc.
-          You will jump to the bounty page when it is created.
+          Upload a real .torrent file and stake the USDC reward that settles through Arc.
+          You'll be taken to the bounty page as soon as it's created.
         </p>
 
         <form className="bounty-form" onSubmit={onSubmit}>
@@ -120,6 +120,7 @@ export default function CreateBountyPage() {
                   style={{ display: "none" }}
                 />
                 <div className="drop-zone-prompt">
+                  <span className="drop-zone-sigil" aria-hidden="true">↥</span>
                   <p>
                     <strong>Drop a .torrent file here</strong>
                   </p>

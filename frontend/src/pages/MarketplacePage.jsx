@@ -156,7 +156,7 @@ export default function MarketplacePage() {
       <section className="glass-panel stack">
         <div className="panel-head">
           <p className="eyebrow">Marketplace</p>
-          <h2>Browse resurrection bounties</h2>
+          <h2>Recovery bounties</h2>
         </div>
         <p className="muted-copy">
           Filter by status, search by title or info hash, then open a bounty to fund, hunt, or verify delivery.
@@ -233,8 +233,8 @@ export default function MarketplacePage() {
         <div className="bounty-list">
           {filtered.length === 0 ? (
             <article className="bounty-card empty">
-              <h3>No bounties match</h3>
-              <p>Try clearing search or listing a new bounty.</p>
+              <h3>No bounties yet</h3>
+              <p className="muted-copy">Try clearing your search, or post a new bounty.</p>
             </article>
           ) : (
             filtered.map((bounty) => <BountyCard bounty={bounty} compact key={bounty.id} />)
