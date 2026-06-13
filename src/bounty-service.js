@@ -161,6 +161,7 @@ export class BountyService {
     pieceLength = null,
     totalSize = null,
     files = null,
+    resourceLocator = null,
   }) {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
@@ -199,6 +200,7 @@ export class BountyService {
       escrowStatus,
       funding,
       hasTorrentFile: !!torrentFileBase64,
+      resourceLocator,
       torrentMeta: {
         pieceCount: pieceCount ?? null,
         pieceLength: pieceLength ?? null,

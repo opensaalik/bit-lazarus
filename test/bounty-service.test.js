@@ -32,6 +32,10 @@ test("bounty service saves torrent bounties", async () => {
       escrowId: "escrow-bounty-1",
       escrowStatus: "AWAITING_FUNDING",
       funding: { paymentRequest: "lnmocktestnet-example" },
+      resourceLocator: {
+        ensName: "b-0123456789abcdef.lazarus.eth",
+        locatorStatus: "PENDING_RECOVERY",
+      },
       pieceCount: 2048,
     });
 
@@ -40,6 +44,7 @@ test("bounty service saves torrent bounties", async () => {
     assert.deepEqual(bounty.tags, ["linux", "archive"]);
     assert.equal(bounty.escrowId, "escrow-bounty-1");
     assert.equal(bounty.bondAmountSats, 7500);
+    assert.equal(bounty.resourceLocator.ensName, "b-0123456789abcdef.lazarus.eth");
     assert.equal(bounty.torrentMeta.pieceCount, 2048);
   });
 });

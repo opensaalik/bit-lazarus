@@ -10,6 +10,7 @@ import { createLightningClientFromEnv } from "./lightning-client.js";
 import { createPolarDemoAuthServiceFromEnv } from "./polar-demo-auth-service.js";
 import { createPolarDemoServiceFromEnv } from "./polar-demo-service.js";
 import { ProtocolService } from "./protocol-service.js";
+import { createEnsLocatorAdapterFromEnv, ResourceLocatorService } from "./resource-locator-service.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { createWebTorrentTrackerServiceFromEnv } from "./webtorrent-tracker-service.js";
 
@@ -49,6 +50,7 @@ export function createApp({
   authService,
   bountyService,
   protocolService,
+  resourceLocatorService = null,
   polarDemoService = null,
   polarDemoAuthService = null,
   webTorrentTrackerService = null,
@@ -143,6 +145,26 @@ export function createApp({
       typeof requestedBountyId === "string" && requestedBountyId.trim()
         ? requestedBountyId.trim()
         : crypto.randomUUID();
+    const existingResource = resourceLocatorService
+      ? resourceLocatorService.getResource(body.torrentInfoHash)
+      : null;
+
+    if (existingResource?.locatorStatus === "ARCHIVED") {
+      response.status(200).json({
+        archiveHit: true,
+        resource: existingResource,
+        resolution: resourceLocatorService.resolveResource(body.torrentInfoHash),
+      });
+      return;
+    }
+
+    const resourceResult = resourceLocatorService
+      ? await resourceLocatorService.ensureResourceForBounty({
+        torrentInfoHash: body.torrentInfoHash,
+        bountyId,
+      })
+      : null;
+
     const escrow = await escrowService.createEscrow({
       escrowId: `escrow-${bountyId}`,
       buyerId: request.auth.user.id,
@@ -162,8 +184,73 @@ export function createApp({
       escrowId: escrow.id,
       escrowStatus: escrow.status,
       funding: escrow.funding,
+      resourceLocator: resourceResult?.resource ?? null,
     });
     response.status(201).json({ bounty });
+  });
+
+  app.get("/resources/:torrentInfoHash", requireAuth, (request, response) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    const resource = resourceLocatorService.getResource(request.params.torrentInfoHash);
+    if (!resource) {
+      response.status(404).json({ error: "resource not found" });
+      return;
+    }
+
+    response.json({ resource });
+  });
+
+  app.get("/resources/:torrentInfoHash/resolve", requireAuth, (request, response) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    response.json({ resolution: resourceLocatorService.resolveResource(request.params.torrentInfoHash) });
+  });
+
+  app.post("/resources/:torrentInfoHash/archive", requireAuth, async (request, response) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    const contract = protocolService.getDeliveryContract(request.body?.contractId);
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (!canAccessDeliveryContract(request.auth.user.id, contract)) {
+      response.status(403).json({ error: "delivery contract access denied" });
+      return;
+    }
+
+    if (contract.state !== "RESOLVED_SUCCESS") {
+      response.status(409).json({ error: "only successfully resolved contracts can be archived" });
+      return;
+    }
+
+    const bounty = bountyService.getBounty(contract.bountyId);
+    if (!bounty || bounty.torrentInfoHash !== request.params.torrentInfoHash.trim().toLowerCase()) {
+      response.status(409).json({ error: "contract does not match requested torrent resource" });
+      return;
+    }
+
+    const resource = await resourceLocatorService.archiveResource({
+      torrentInfoHash: bounty.torrentInfoHash,
+      contractId: contract.id,
+      walrusBlobId: request.body?.walrusBlobId,
+      walrusObjectId: request.body?.walrusObjectId,
+    });
+    response.status(201).json({
+      resource,
+      resolution: resourceLocatorService.resolveResource(bounty.torrentInfoHash),
+    });
   });
 
   app.get("/bounties/:bountyId/torrent", requireAuth, async (request, response) => {
@@ -473,6 +560,13 @@ export function createApp({
       fileName: request.body?.fileName,
       fileSize: request.body?.fileSize,
     });
+    const bounty = bountyService.getBounty(updatedContract.bountyId);
+    if (resourceLocatorService && bounty) {
+      await resourceLocatorService.markSeeding({
+        torrentInfoHash: bounty.torrentInfoHash,
+        contractId: updatedContract.id,
+      });
+    }
 
     await bountyService.updateProtocolState({
       bountyId: updatedContract.bountyId,
@@ -572,6 +666,12 @@ export async function startServer({
     escrowService,
   });
   await protocolService.init();
+  const resourceLocatorService = new ResourceLocatorService({
+    dataDir: path.join(dataDir, "resources"),
+    ensAdapter: createEnsLocatorAdapterFromEnv(process.env),
+    walrusGatewayBaseUrl: process.env.WALRUS_GATEWAY_BASE_URL,
+  });
+  await resourceLocatorService.init();
   const polarDemoService = createPolarDemoServiceFromEnv(process.env);
   const polarDemoAuthService = createPolarDemoAuthServiceFromEnv({
     authService,
@@ -588,6 +688,7 @@ export async function startServer({
     authService,
     bountyService,
     protocolService,
+    resourceLocatorService,
     polarDemoService,
     polarDemoAuthService,
     webTorrentTrackerService,
