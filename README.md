@@ -92,6 +92,18 @@ After deployment, set:
 ARC_ESCROW_CONTRACT_ADDRESS=<deployed-contract-address>
 ```
 
+## Arc API Routes
+
+The backend never holds an Arc signing key. It returns transaction payloads for the browser wallet to sign:
+
+- `GET /arc/config`
+- `GET /arc/bounties/by-infohash/:torrentInfoHash`
+- `POST /arc/transactions/create-bounty`
+- `POST /arc/transactions/claim-bounty`
+- `POST /arc/transactions/submit-delivery`
+- `POST /arc/transactions/confirm-delivery`
+- `POST /arc/transactions/refund-expired`
+
 ## Run The Frontend
 
 In a second terminal:

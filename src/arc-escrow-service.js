@@ -158,13 +158,13 @@ function assertPositiveBigInt(value, fieldName) {
 
 function assertBytes32(value, fieldName) {
   assertString(value, fieldName);
-  const normalized = value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase().replace(/^0x/, "");
 
-  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(`${fieldName} must be a 32-byte hex string`);
   }
 
-  return normalized;
+  return `0x${normalized}`;
 }
 
 export function normalizeTorrentInfoHash(infoHash) {

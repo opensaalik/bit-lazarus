@@ -96,7 +96,7 @@ test("Arc escrow service builds lifecycle transaction payloads", () => {
     abi: arcEscrowAbi,
     data: service.buildSubmitDeliveryTransaction({
       bountyId: 7,
-      deliveryHash: `0x${"a".repeat(64)}`,
+      deliveryHash: "a".repeat(64),
       walrusBlobId: "walrus_blob_abcdef123456",
     }).data,
   });
