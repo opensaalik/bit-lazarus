@@ -12,6 +12,19 @@ export const DEFAULT_ARC_RPC_URL = "https://rpc.testnet.arc.network";
 export const DEFAULT_ARC_USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const GAS_LIMITS = {
+  approve: 100_000n,
+  createBounty: 500_000n,
+  claimBounty: 150_000n,
+  submitDelivery: 250_000n,
+  confirmDelivery: 250_000n,
+  refundExpired: 200_000n,
+  cancelBounty: 200_000n,
+};
+
+function toHexQuantity(value) {
+  return `0x${BigInt(value).toString(16)}`;
+}
 
 export const arcTestnet = defineChain({
   id: ARC_TESTNET_CHAIN_ID,
@@ -306,6 +319,7 @@ export class ArcEscrowService {
       chainId: ARC_TESTNET_CHAIN_ID,
       to: this.usdcAddress,
       value: "0x0",
+      gas: toHexQuantity(GAS_LIMITS.approve),
       data: encodeFunctionData({
         abi: erc20ApprovalAbi,
         functionName: "approve",
@@ -327,6 +341,7 @@ export class ArcEscrowService {
       chainId: ARC_TESTNET_CHAIN_ID,
       to: this.contractAddress,
       value: "0x0",
+      gas: toHexQuantity(GAS_LIMITS.createBounty),
       data: encodeFunctionData({
         abi: arcEscrowAbi,
         functionName: "createBounty",
@@ -370,6 +385,7 @@ export class ArcEscrowService {
       chainId: ARC_TESTNET_CHAIN_ID,
       to: this.contractAddress,
       value: "0x0",
+      gas: toHexQuantity(GAS_LIMITS[functionName] ?? 250_000n),
       data: encodeFunctionData({
         abi: arcEscrowAbi,
         functionName,

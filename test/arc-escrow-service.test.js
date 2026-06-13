@@ -59,6 +59,7 @@ test("Arc escrow service builds USDC approval transactions", () => {
   assert.equal(transaction.chainId, ARC_TESTNET_CHAIN_ID);
   assert.equal(transaction.to, checksummedUsdcAddress);
   assert.equal(transaction.value, "0x0");
+  assert.equal(transaction.gas, "0x186a0");
   assert.equal(decoded.functionName, "approve");
   assert.deepEqual(decoded.args, [checksummedContractAddress, 25_000_000n]);
 });
@@ -79,6 +80,7 @@ test("Arc escrow service builds create bounty transactions", () => {
   assert.equal(transaction.chainId, ARC_TESTNET_CHAIN_ID);
   assert.equal(transaction.to, checksummedContractAddress);
   assert.equal(transaction.value, "0x0");
+  assert.equal(transaction.gas, "0x7a120");
   assert.equal(decoded.functionName, "createBounty");
   assert.deepEqual(decoded.args, [
     "0x0123456789abcdef0123456789abcdef01234567",
@@ -114,6 +116,16 @@ test("Arc escrow service builds lifecycle transaction payloads", () => {
     data: service.buildCancelBountyTransaction({ bountyId: 7 }).data,
   });
 
+  assert.equal(service.buildClaimBountyTransaction({ bountyId: 7 }).gas, "0x249f0");
+  assert.equal(service.buildSubmitDeliveryTransaction({
+    bountyId: 7,
+    deliveryHash: "a".repeat(64),
+  }).gas, "0x3d090");
+  assert.equal(service.buildConfirmDeliveryTransaction({
+    bountyId: 7,
+    walrusBlobId: "walrus_blob_abcdef123456",
+  }).gas, "0x3d090");
+  assert.equal(service.buildCancelBountyTransaction({ bountyId: 7 }).gas, "0x30d40");
   assert.equal(claim.functionName, "claimBounty");
   assert.deepEqual(claim.args, [7n]);
   assert.equal(submit.functionName, "submitDelivery");

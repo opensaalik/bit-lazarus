@@ -11,12 +11,18 @@ function toQuantity(value) {
 }
 
 function normalizeTransaction(transaction) {
-  return {
+  const normalized = {
     from: transaction.from,
     to: transaction.to,
     value: transaction.value ?? "0x0",
     data: transaction.data,
   };
+
+  if (transaction.gas) {
+    normalized.gas = transaction.gas;
+  }
+
+  return normalized;
 }
 
 export async function switchToArc(arcConfig) {
