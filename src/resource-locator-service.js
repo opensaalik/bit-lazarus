@@ -10,6 +10,7 @@ import {
   parseAbi,
 } from "viem";
 import { normalize } from "viem/ens";
+import { createArcEscrowServiceFromEnv } from "./arc-escrow-service.js";
 
 const WALRUS_BLOB_TEXT_KEY = "walrus.blob";
 const LEGACY_WALRUS_BLOB_TEXT_KEY = "bitlazarus.walrus.blob";
@@ -18,6 +19,7 @@ const STATUS_TEXT_KEY = "status";
 const RESOURCE_URL_TEXT_KEY = "url";
 const DESCRIPTION_TEXT_KEY = "description";
 const AVATAR_TEXT_KEY = "avatar";
+const REWARD_TEXT_KEY = "reward";
 const DEFAULT_ENS_NETWORK = "sepolia";
 const DEFAULT_WALRUS_GATEWAY_BASE_URL = "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
@@ -174,13 +176,24 @@ function encodeResolverAddress(value) {
 }
 
 export function createResourceLocatorServiceFromEnv(environment = process.env, options = {}) {
+  const arcEscrowService = options.arcEscrowService ?? createArcEscrowServiceFromEnv(environment);
+
+  if (!arcEscrowService) {
+    throw new Error("ARC_ESCROW_CONTRACT_ADDRESS is required");
+  }
+
   return new ResourceLocatorService({
     ...options,
     parentName: environment.ENS_PARENT_NAME,
     ensNetwork: environment.ENS_NETWORK ?? DEFAULT_ENS_NETWORK,
     walrusGatewayBaseUrl: environment.WALRUS_GATEWAY_BASE_URL ?? options.walrusGatewayBaseUrl,
-    escrowAddress: environment.RESOURCE_LOCATOR_ESCROW_ADDRESS ?? environment.ESCROW_CONTRACT_ADDRESS ?? null,
+    escrowAddress:
+      environment.RESOURCE_LOCATOR_ESCROW_ADDRESS ??
+      environment.ARC_ESCROW_CONTRACT_ADDRESS ??
+      environment.ESCROW_CONTRACT_ADDRESS ??
+      null,
     avatarUrl: environment.RESOURCE_LOCATOR_AVATAR_URL ?? null,
+    arcEscrowService,
   });
 }
 
@@ -192,6 +205,7 @@ export class ResourceLocatorService {
     walrusGatewayBaseUrl = DEFAULT_WALRUS_GATEWAY_BASE_URL,
     escrowAddress = null,
     avatarUrl = null,
+    arcEscrowService = null,
     now = () => new Date().toISOString(),
   } = {}) {
     this.parentName = normalizeParentName(parentName);
@@ -201,6 +215,10 @@ export class ResourceLocatorService {
     this.walrusGatewayBaseUrl = walrusGatewayBaseUrl.replace(/\/$/, "");
     this.escrowAddress = normalizeOptionalString(escrowAddress, "escrowAddress");
     this.avatarUrl = normalizeOptionalString(avatarUrl, "avatarUrl");
+    if (!arcEscrowService) {
+      throw new Error("arcEscrowService is required");
+    }
+    this.arcEscrowService = arcEscrowService;
     this.now = now;
     this.resources = new Map();
   }
@@ -349,7 +367,7 @@ export class ResourceLocatorService {
     };
   }
 
-  getEnsTextRecord({ ensName, key }) {
+  async getEnsTextRecord({ ensName, key }) {
     assertString(key, "key");
     const infoHash = parseInfoHashFromEnsName(ensName, this.parentName);
 
@@ -357,20 +375,25 @@ export class ResourceLocatorService {
       return "";
     }
 
-    const resource = this.resources.get(infoHash);
+    const arcBounty = await this.arcEscrowService.getBountyByInfoHash(infoHash);
 
     switch (key) {
       case INFOHASH_TEXT_KEY:
         return infoHash;
       case STATUS_TEXT_KEY:
-        return resource ? getLocatorStatusText(resource.locatorStatus) : "";
+        return arcBounty?.locatorStatus ?? "";
       case WALRUS_BLOB_TEXT_KEY:
       case LEGACY_WALRUS_BLOB_TEXT_KEY:
-        return resource?.walrusBlobId ?? "";
+        return arcBounty?.walrusBlobId ?? "";
       case RESOURCE_URL_TEXT_KEY:
-        return resource?.retrievalUrl ?? "";
+        if (arcBounty?.walrusBlobId) {
+          return this.getWalrusRetrievalUrl(arcBounty.walrusBlobId);
+        }
+        return "";
       case DESCRIPTION_TEXT_KEY:
-        return resource?.description ?? resource?.title ?? "";
+        return arcBounty?.spec ?? "";
+      case REWARD_TEXT_KEY:
+        return arcBounty ? `${arcBounty.rewardAmountUnits} ${arcBounty.rewardToken}` : "";
       case AVATAR_TEXT_KEY:
         return this.avatarUrl ?? "";
       default:
@@ -378,7 +401,7 @@ export class ResourceLocatorService {
     }
   }
 
-  answerCcipRead({ data }) {
+  async answerCcipRead({ data }) {
     assertString(data, "data");
     const { dnsEncodedName, resolverData } = decodeCcipReadPayload(data);
     const ensName = decodeDnsEncodedName(dnsEncodedName);
@@ -390,7 +413,7 @@ export class ResourceLocatorService {
     if (decoded.functionName === "text") {
       const [, key] = decoded.args;
       return {
-        data: encodeResolverString(this.getEnsTextRecord({ ensName, key })),
+        data: encodeResolverString(await this.getEnsTextRecord({ ensName, key })),
       };
     }
 

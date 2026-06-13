@@ -89,28 +89,36 @@ export function createApp({
     });
   });
 
-  app.get("/ens/ccip/:sender/:data", (request, response) => {
+  app.get("/ens/ccip/:sender/:data", async (request, response, next) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });
       return;
     }
 
-    response.json(resourceLocatorService.answerCcipRead({
-      sender: request.params.sender,
-      data: request.params.data,
-    }));
+    try {
+      response.json(await resourceLocatorService.answerCcipRead({
+        sender: request.params.sender,
+        data: request.params.data,
+      }));
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.post("/ens/ccip", (request, response) => {
+  app.post("/ens/ccip", async (request, response, next) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });
       return;
     }
 
-    response.json(resourceLocatorService.answerCcipRead({
-      sender: request.body?.sender,
-      data: request.body?.data,
-    }));
+    try {
+      response.json(await resourceLocatorService.answerCcipRead({
+        sender: request.body?.sender,
+        data: request.body?.data,
+      }));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/auth/challenges", async (request, response) => {

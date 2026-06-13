@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
-import { decodeAbiParameters, encodeAbiParameters, encodeFunctionData, namehash, parseAbi, toHex } from "viem";
+import { decodeAbiParameters, encodeAbiParameters, encodeFunctionData, getAddress, namehash, parseAbi, toHex } from "viem";
 import { packetToBytes } from "viem/ens";
+import { ArcEscrowService } from "../src/arc-escrow-service.js";
 import {
   createResourceLocatorServiceFromEnv,
   ResourceLocatorService,
@@ -16,6 +17,10 @@ const resolverReadAbi = parseAbi([
   "function addr(bytes32 node) view returns (address)",
 ]);
 
+const escrowAddress = "0x831ad29969e853e668ac3e9db4856a1f48acfd0d";
+const usdcAddress = "0x3600000000000000000000000000000000000000";
+const zeroAddress = "0x0000000000000000000000000000000000000000";
+
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-resource-"));
 
@@ -26,11 +31,71 @@ async function withTempDir(run) {
   }
 }
 
+function createArcService(bountiesByInfoHash = new Map()) {
+  return new ArcEscrowService({
+    contractAddress: escrowAddress,
+    usdcAddress,
+    publicClient: {
+      async readContract({ functionName, args }) {
+        const infoHash = String(args[0]).toLowerCase().replace(/^0x/, "");
+        const record = bountiesByInfoHash.get(infoHash);
+
+        if (functionName === "bountyIdByInfoHash") {
+          return record?.bountyId ?? 0n;
+        }
+
+        if (functionName === "getBountyByInfoHash") {
+          return record?.rawBounty ?? {
+            infoHash: args[0],
+            requester: zeroAddress,
+            hunter: zeroAddress,
+            rewardAmount: 0n,
+            status: 0,
+            deliveryHash: `0x${"0".repeat(64)}`,
+            walrusBlobId: "",
+            spec: "",
+            createdAt: 0n,
+            deadlineAt: 0n,
+          };
+        }
+
+        throw new Error(`unsupported read: ${functionName}`);
+      },
+    },
+  });
+}
+
+function createArcBounty({
+  bountyId = 1n,
+  infoHash,
+  status = 1,
+  walrusBlobId = "",
+  spec = "",
+  rewardAmount = 25_000_000n,
+}) {
+  return {
+    bountyId,
+    rawBounty: {
+      infoHash: `0x${infoHash}`,
+      requester: "0x00000000000000000000000000000000000000AA",
+      hunter: status >= 2 ? "0x00000000000000000000000000000000000000BB" : zeroAddress,
+      rewardAmount,
+      status,
+      deliveryHash: `0x${"a".repeat(64)}`,
+      walrusBlobId,
+      spec,
+      createdAt: 1_780_000_001n,
+      deadlineAt: 1_780_086_401n,
+    },
+  };
+}
+
 function createService(dataDir, options = {}) {
   return new ResourceLocatorService({
     dataDir,
     parentName: "bitlazarus.eth",
     walrusGatewayBaseUrl: "https://walrus.example/blobs",
+    escrowAddress,
     ...options,
   });
 }
@@ -61,111 +126,93 @@ function decodeAddressResponse(data) {
   return value;
 }
 
-test("resource locator derives one wildcard ENS name per unique torrent", async () => {
+test("resource locator requires Arc escrow integration", () => {
+  assert.throws(
+    () => new ResourceLocatorService({ parentName: "bitlazarus.eth" }),
+    /arcEscrowService is required/,
+  );
+
+  assert.throws(
+    () => createResourceLocatorServiceFromEnv({
+      ENS_PARENT_NAME: "bitlazarus.eth",
+    }),
+    /ARC_ESCROW_CONTRACT_ADDRESS is required/,
+  );
+});
+
+test("resource locator derives deterministic wildcard ENS names", async () => {
   await withTempDir(async (tempDir) => {
-    const service = createService(tempDir);
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(),
+    });
     await service.init();
 
-    const first = await service.ensureResourceForBounty({
-      torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
-      bountyId: "bounty-1",
-      title: "Lost distro ISO",
-      rewardAmountUnits: 5_000_000,
-    });
-    const second = await service.ensureResourceForBounty({
-      torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
-      bountyId: "bounty-2",
-    });
-
-    assert.equal(first.created, true);
-    assert.equal(second.created, false);
-    assert.equal(first.resource.ensName, "btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth");
-    assert.equal(second.resource.ensName, first.resource.ensName);
-    assert.deepEqual(second.resource.bountyIds, ["bounty-1", "bounty-2"]);
-    assert.equal(second.resource.title, "Lost distro ISO");
-    assert.equal(second.resource.rewardAmountUnits, 5_000_000);
-    assert.equal(second.resource.rewardToken, "USDC");
+    assert.equal(
+      service.deriveName("0123456789abcdef0123456789abcdef01234567"),
+      "btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth",
+    );
   });
 });
 
-test("resource locator resolves to torrent before archive and Walrus after archive", async () => {
+test("resource locator answers ENSIP-10 text lookups from Arc escrow state", async () => {
   await withTempDir(async (tempDir) => {
-    const service = createService(tempDir);
+    const infoHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const arcBounties = new Map([
+      [infoHash, createArcBounty({
+        bountyId: 7n,
+        infoHash,
+        status: 4,
+        walrusBlobId: "walrus_blob_bbbbbbbbbbbb",
+        spec: "Recovered public domain footage",
+        rewardAmount: 42_000_000n,
+      })],
+    ]);
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(arcBounties),
+    });
     await service.init();
-
-    await service.ensureResourceForBounty({
-      torrentInfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      bountyId: "bounty-a",
-    });
-
-    const torrentResolution = service.resolveResource("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    assert.equal(torrentResolution.mode, "torrent");
-    assert.equal(torrentResolution.activeBountyId, "bounty-a");
-
-    const archived = await service.archiveResource({
-      torrentInfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      contractId: "contract-a",
-      walrusBlobId: "walrus_blob_0123456789",
-      walrusObjectId: "object-a",
-    });
-    const walrusResolution = service.resolveResource("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-    assert.equal(archived.locatorStatus, "ARCHIVED");
-    assert.equal(walrusResolution.mode, "walrus");
-    assert.equal(walrusResolution.walrusBlobId, "walrus_blob_0123456789");
-    assert.equal(walrusResolution.retrievalUrl, "https://walrus.example/blobs/walrus_blob_0123456789");
-  });
-});
-
-test("resource locator answers ENSIP-10 text lookups from canonical resource state", async () => {
-  await withTempDir(async (tempDir) => {
-    const service = createService(tempDir);
-    await service.init();
-
-    await service.ensureResourceForBounty({
-      torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      bountyId: "bounty-b",
-      description: "Recovered public domain footage",
-    });
-    await service.archiveResource({
-      torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      contractId: "contract-b",
-      walrusBlobId: "walrus_blob_bbbbbbbbbbbb",
-    });
 
     const ensName = "btih-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bitlazarus.eth";
-    const blobResponse = service.answerCcipRead({
+    const blobResponse = await service.answerCcipRead({
       data: encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob")),
     });
-    const statusResponse = service.answerCcipRead({
+    const statusResponse = await service.answerCcipRead({
       data: encodeResolveCall(ensName, encodeTextCall(ensName, "status")),
     });
-    const infoHashResponse = service.answerCcipRead({
+    const infoHashResponse = await service.answerCcipRead({
       data: encodeResolveCall(ensName, encodeTextCall(ensName, "infohash")),
     });
-    const descriptionResponse = service.answerCcipRead({
+    const descriptionResponse = await service.answerCcipRead({
       data: encodeResolveCall(ensName, encodeTextCall(ensName, "description")),
+    });
+    const rewardResponse = await service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "reward")),
+    });
+    const urlResponse = await service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "url")),
     });
 
     assert.equal(decodeStringResponse(blobResponse.data), "walrus_blob_bbbbbbbbbbbb");
     assert.equal(decodeStringResponse(statusResponse.data), "archived");
-    assert.equal(decodeStringResponse(infoHashResponse.data), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    assert.equal(decodeStringResponse(infoHashResponse.data), infoHash);
     assert.equal(decodeStringResponse(descriptionResponse.data), "Recovered public domain footage");
+    assert.equal(decodeStringResponse(rewardResponse.data), "42000000 USDC");
+    assert.equal(decodeStringResponse(urlResponse.data), "https://walrus.example/blobs/walrus_blob_bbbbbbbbbbbb");
   });
 });
 
 test("resource locator accepts abi-encoded CCIP callData payloads", async () => {
   await withTempDir(async (tempDir) => {
-    const service = createService(tempDir);
+    const infoHash = "cccccccccccccccccccccccccccccccccccccccc";
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(new Map([
+        [infoHash, createArcBounty({ infoHash, status: 1 })],
+      ])),
+    });
     await service.init();
 
-    await service.ensureResourceForBounty({
-      torrentInfoHash: "cccccccccccccccccccccccccccccccccccccccc",
-      bountyId: "bounty-c",
-    });
-
     const ensName = "btih-cccccccccccccccccccccccccccccccccccccccc.bitlazarus.eth";
-    const response = service.answerCcipRead({
+    const response = await service.answerCcipRead({
       data: encodeAbiParameters(
         [{ type: "bytes" }, { type: "bytes" }],
         [toHex(packetToBytes(ensName)), encodeTextCall(ensName, "status")],
@@ -176,15 +223,15 @@ test("resource locator accepts abi-encoded CCIP callData payloads", async () => 
   });
 });
 
-test("resource locator answers addr lookups with the escrow contract address", async () => {
+test("resource locator answers addr lookups with the Arc escrow contract address", async () => {
   await withTempDir(async (tempDir) => {
     const service = createService(tempDir, {
-      escrowAddress: "0x00000000000000000000000000000000000000aa",
+      arcEscrowService: createArcService(),
     });
     await service.init();
 
     const ensName = "btih-dddddddddddddddddddddddddddddddddddddddd.bitlazarus.eth";
-    const response = service.answerCcipRead({
+    const response = await service.answerCcipRead({
       data: encodeResolveCall(
         ensName,
         encodeFunctionData({
@@ -195,17 +242,19 @@ test("resource locator answers addr lookups with the escrow contract address", a
       ),
     });
 
-    assert.equal(decodeAddressResponse(response.data), "0x00000000000000000000000000000000000000AA");
+    assert.equal(decodeAddressResponse(response.data), getAddress(escrowAddress));
   });
 });
 
-test("resource locator returns empty text for unknown wildcard names", async () => {
+test("resource locator returns empty Arc-backed records for unknown wildcard names", async () => {
   await withTempDir(async (tempDir) => {
-    const service = createService(tempDir);
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(),
+    });
     await service.init();
 
     const ensName = "btih-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.bitlazarus.eth";
-    const response = service.answerCcipRead({
+    const response = await service.answerCcipRead({
       data: encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob")),
     });
 
@@ -213,19 +262,18 @@ test("resource locator returns empty text for unknown wildcard names", async () 
   });
 });
 
-test("resource locator factory always builds the wildcard production service", () => {
-  assert.throws(
-    () => createResourceLocatorServiceFromEnv({}),
-    /ENS_PARENT_NAME is required/,
-  );
-
+test("resource locator factory builds the Arc-backed production service", () => {
   const service = createResourceLocatorServiceFromEnv({
     ENS_PARENT_NAME: "bitlazarus.eth",
     ENS_NETWORK: "sepolia",
     WALRUS_GATEWAY_BASE_URL: "https://walrus.example/blobs",
+    ARC_RPC_URL: "https://rpc.testnet.arc.network",
+    ARC_ESCROW_CONTRACT_ADDRESS: escrowAddress,
+    ARC_USDC_ADDRESS: usdcAddress,
   });
 
   assert.equal(service.parentName, "bitlazarus.eth");
   assert.equal(service.ensNetwork, "sepolia");
+  assert.equal(service.escrowAddress, escrowAddress);
   assert.equal(service.getWalrusRetrievalUrl("blob-1"), "https://walrus.example/blobs/blob-1");
 });

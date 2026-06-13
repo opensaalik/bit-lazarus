@@ -1,14 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
 import { decodeAbiParameters, encodeFunctionData, namehash, parseAbi, toHex } from "viem";
 import { packetToBytes } from "viem/ens";
 import {
   answerCcipGatewayRequest,
   getCcipGatewayHealth,
 } from "../src/ccip-gateway-server.js";
+import { ArcEscrowService } from "../src/arc-escrow-service.js";
 import { ResourceLocatorService } from "../src/resource-locator-service.js";
 
 const resolverReadAbi = parseAbi([
@@ -16,14 +14,39 @@ const resolverReadAbi = parseAbi([
   "function text(bytes32 node, string key) view returns (string)",
 ]);
 
-async function withTempDir(run) {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-ccip-gateway-"));
+const escrowAddress = "0x831ad29969e853e668ac3e9db4856a1f48acfd0d";
+const usdcAddress = "0x3600000000000000000000000000000000000000";
+const zeroAddress = "0x0000000000000000000000000000000000000000";
 
-  try {
-    return await run(tempDir);
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+function createArcService() {
+  return new ArcEscrowService({
+    contractAddress: escrowAddress,
+    usdcAddress,
+    publicClient: {
+      async readContract({ functionName }) {
+        if (functionName === "bountyIdByInfoHash") {
+          return 11n;
+        }
+
+        if (functionName === "getBountyByInfoHash") {
+          return {
+            infoHash: "0xabababababababababababababababababababab",
+            requester: "0x00000000000000000000000000000000000000AA",
+            hunter: "0x00000000000000000000000000000000000000BB",
+            rewardAmount: 25_000_000n,
+            status: 4,
+            deliveryHash: `0x${"a".repeat(64)}`,
+            walrusBlobId: "walrus_blob_ababababab",
+            spec: "Recovered public domain dataset",
+            createdAt: 1_780_000_001n,
+            deadlineAt: 1_780_086_401n,
+          };
+        }
+
+        throw new Error(`unsupported read: ${functionName}`);
+      },
+    },
+  });
 }
 
 function encodeResolveCall(ensName, resolverData) {
@@ -48,40 +71,28 @@ function decodeStringResponse(data) {
 }
 
 test("CCIP gateway serves ENS wildcard reads without starting the full node", async () => {
-  await withTempDir(async (tempDir) => {
-    const resourceLocatorService = new ResourceLocatorService({
-      dataDir: tempDir,
-      parentName: "bitlazarus.eth",
-      walrusGatewayBaseUrl: "https://walrus.example/blobs",
-    });
-    await resourceLocatorService.init();
-
-    await resourceLocatorService.ensureResourceForBounty({
-      torrentInfoHash: "abababababababababababababababababababab",
-      bountyId: "bounty-ab",
-      description: "Recovered public domain dataset",
-    });
-    await resourceLocatorService.archiveResource({
-      torrentInfoHash: "abababababababababababababababababababab",
-      contractId: "contract-ab",
-      walrusBlobId: "walrus_blob_ababababab",
-    });
-
-    assert.deepEqual(getCcipGatewayHealth({ resourceLocatorService }), {
-      ok: true,
-      service: "bit-lazarus-ccip-gateway",
-      parentName: "bitlazarus.eth",
-      ensNetwork: "sepolia",
-    });
-
-    const ensName = "btih-abababababababababababababababababababab.bitlazarus.eth";
-    const data = encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob"));
-    const ccipResponse = answerCcipGatewayRequest({
-      resourceLocatorService,
-      sender: "0x0000000000000000000000000000000000000000",
-      data,
-    });
-
-    assert.equal(decodeStringResponse(ccipResponse.data), "walrus_blob_ababababab");
+  const resourceLocatorService = new ResourceLocatorService({
+    parentName: "bitlazarus.eth",
+    walrusGatewayBaseUrl: "https://walrus.example/blobs",
+    escrowAddress,
+    arcEscrowService: createArcService(),
   });
+
+  assert.deepEqual(getCcipGatewayHealth({ resourceLocatorService }), {
+    ok: true,
+    service: "bit-lazarus-ccip-gateway",
+    parentName: "bitlazarus.eth",
+    ensNetwork: "sepolia",
+    arcEscrowContractAddress: "0x831AD29969E853e668AC3e9Db4856a1f48aCFd0d",
+  });
+
+  const ensName = "btih-abababababababababababababababababababab.bitlazarus.eth";
+  const data = encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob"));
+  const ccipResponse = await answerCcipGatewayRequest({
+    resourceLocatorService,
+    sender: zeroAddress,
+    data,
+  });
+
+  assert.equal(decodeStringResponse(ccipResponse.data), "walrus_blob_ababababab");
 });

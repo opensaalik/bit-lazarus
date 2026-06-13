@@ -9,10 +9,11 @@ export function getCcipGatewayHealth({ resourceLocatorService }) {
     service: "bit-lazarus-ccip-gateway",
     parentName: resourceLocatorService.parentName,
     ensNetwork: resourceLocatorService.ensNetwork,
+    arcEscrowContractAddress: resourceLocatorService.arcEscrowService.contractAddress,
   };
 }
 
-export function answerCcipGatewayRequest({ resourceLocatorService, sender, data }) {
+export async function answerCcipGatewayRequest({ resourceLocatorService, sender, data }) {
   return resourceLocatorService.answerCcipRead({ sender, data });
 }
 
@@ -25,20 +26,28 @@ export function createCcipGatewayApp({ resourceLocatorService }) {
     response.json(getCcipGatewayHealth({ resourceLocatorService }));
   });
 
-  app.get("/ens/ccip/:sender/:data", (request, response) => {
-    response.json(answerCcipGatewayRequest({
-      resourceLocatorService,
-      sender: request.params.sender,
-      data: request.params.data,
-    }));
+  app.get("/ens/ccip/:sender/:data", async (request, response, next) => {
+    try {
+      response.json(await answerCcipGatewayRequest({
+        resourceLocatorService,
+        sender: request.params.sender,
+        data: request.params.data,
+      }));
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.post("/ens/ccip", (request, response) => {
-    response.json(answerCcipGatewayRequest({
-      resourceLocatorService,
-      sender: request.body?.sender,
-      data: request.body?.data,
-    }));
+  app.post("/ens/ccip", async (request, response, next) => {
+    try {
+      response.json(await answerCcipGatewayRequest({
+        resourceLocatorService,
+        sender: request.body?.sender,
+        data: request.body?.data,
+      }));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.use((request, response) => {

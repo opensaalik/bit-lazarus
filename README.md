@@ -28,6 +28,8 @@ npm install
 ```bash
 ENS_PARENT_NAME=bitlazarus.eth \
 ENS_NETWORK=sepolia \
+ARC_RPC_URL=https://rpc.testnet.arc.network \
+ARC_ESCROW_CONTRACT_ADDRESS=0x831ad29969e853e668ac3e9db4856a1f48acfd0d \
 DATA_DIR=./data/local \
 npm start
 ```
@@ -43,6 +45,8 @@ Use this lighter process when hosting only the ENS offchain gateway:
 ```bash
 ENS_PARENT_NAME=bitlazarus.eth \
 ENS_NETWORK=sepolia \
+ARC_RPC_URL=https://rpc.testnet.arc.network \
+ARC_ESCROW_CONTRACT_ADDRESS=0x831ad29969e853e668ac3e9db4856a1f48acfd0d \
 DATA_DIR=./data/gateway \
 npm run ccip:gateway
 ```
