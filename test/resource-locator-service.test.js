@@ -154,6 +154,52 @@ test("resource locator derives deterministic wildcard ENS names", async () => {
   });
 });
 
+test("resource locator parses torrent infohashes from ENS locator names", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(),
+    });
+    await service.init();
+
+    assert.equal(
+      service.getTorrentInfoHashFromLocator("btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth"),
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    assert.equal(
+      service.getTorrentInfoHashFromLocator("0123456789abcdef0123456789abcdef01234567"),
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    assert.throws(
+      () => service.getTorrentInfoHashFromLocator("btih-0123456789abcdef0123456789abcdef01234567.other.eth"),
+      /locator must be/,
+    );
+  });
+});
+
+test("resource locator resolves archived ENS locator names to Walrus", async () => {
+  await withTempDir(async (tempDir) => {
+    const infoHash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(new Map([
+        [infoHash, createArcBounty({
+          infoHash,
+          status: 4,
+          walrusBlobId: "walrus_blob_eeeeeeeeeeee",
+        })],
+      ])),
+    });
+    await service.init();
+
+    const resolution = await service.resolveLocator(`btih-${infoHash}.bitlazarus.eth`);
+
+    assert.equal(resolution.mode, "walrus");
+    assert.equal(resolution.torrentInfoHash, infoHash);
+    assert.equal(resolution.ensName, `btih-${infoHash}.bitlazarus.eth`);
+    assert.equal(resolution.walrusBlobId, "walrus_blob_eeeeeeeeeeee");
+    assert.equal(resolution.retrievalUrl, "https://walrus.example/blobs/walrus_blob_eeeeeeeeeeee");
+  });
+});
+
 test("resource locator answers ENSIP-10 text lookups from Arc escrow state", async () => {
   await withTempDir(async (tempDir) => {
     const infoHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

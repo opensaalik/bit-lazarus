@@ -383,6 +383,43 @@ export function createApp({
     response.status(201).json({ bounty });
   });
 
+  app.get("/resources/:torrentInfoHash/resolve", requireAuth, async (request, response, next) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    try {
+      response.json({
+        resolution: await resourceLocatorService.resolveLocator(request.params.torrentInfoHash),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/resources/resolve", requireAuth, async (request, response, next) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    try {
+      const locator = typeof request.query.locator === "string" ? request.query.locator : "";
+      const resolution = await resourceLocatorService.resolveLocator(locator);
+      const bounty = bountyService
+        .listBounties({})
+        .find((candidate) => candidate.torrentInfoHash === resolution.torrentInfoHash) ?? null;
+
+      response.json({
+        resolution,
+        bounty,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/resources/:torrentInfoHash", requireAuth, (request, response) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });
@@ -398,58 +435,6 @@ export function createApp({
     response.json({ resource });
   });
 
-  app.get("/resources/:torrentInfoHash/resolve", requireAuth, async (request, response, next) => {
-    if (!resourceLocatorService) {
-      response.status(503).json({ error: "resource locator service is not configured" });
-      return;
-    }
-
-    try {
-      const torrentInfoHash = request.params.torrentInfoHash.trim().toLowerCase();
-      const ensName = resourceLocatorService.deriveName(torrentInfoHash);
-      const walrusBlobId = await resourceLocatorService.getEnsTextRecord({
-        ensName,
-        key: "walrus.blob",
-      });
-
-      if (walrusBlobId) {
-        const retrievalUrl = await resourceLocatorService.getEnsTextRecord({
-          ensName,
-          key: "url",
-        });
-
-        response.json({
-          resolution: {
-            mode: "walrus",
-            ensName,
-            ensNetwork: resourceLocatorService.ensNetwork,
-            walrusBlobId,
-            retrievalUrl: retrievalUrl || resourceLocatorService.getWalrusRetrievalUrl(walrusBlobId),
-          },
-        });
-        return;
-      }
-
-      const resource = resourceLocatorService.getResource(torrentInfoHash);
-      if (resource) {
-        response.json({ resolution: resourceLocatorService.resolveResource(torrentInfoHash) });
-        return;
-      }
-
-      response.json({
-        resolution: {
-          mode: "torrent",
-          ensName,
-          ensNetwork: resourceLocatorService.ensNetwork,
-          activeBountyId: null,
-          resource: null,
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.get("/resources/:torrentInfoHash/download", requireAuth, async (request, response, next) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });
@@ -457,14 +442,10 @@ export function createApp({
     }
 
     try {
-      const torrentInfoHash = request.params.torrentInfoHash.trim().toLowerCase();
-      const ensName = resourceLocatorService.deriveName(torrentInfoHash);
-      const walrusBlobId = await resourceLocatorService.getEnsTextRecord({
-        ensName,
-        key: "walrus.blob",
-      });
+      const resolution = await resourceLocatorService.resolveLocator(request.params.torrentInfoHash);
+      const { ensName, torrentInfoHash, walrusBlobId } = resolution;
 
-      if (!walrusBlobId) {
+      if (resolution.mode !== "walrus" || !walrusBlobId) {
         response.status(404).json({ error: "Walrus archive not found for this torrent resource" });
         return;
       }

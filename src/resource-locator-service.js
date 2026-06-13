@@ -255,6 +255,65 @@ export class ResourceLocatorService {
     return normalize(`${this.deriveLabel(torrentInfoHash)}.${this.parentName}`);
   }
 
+  getTorrentInfoHashFromLocator(locator) {
+    assertString(locator, "locator");
+
+    const normalized = locator.trim().toLowerCase();
+    if (/^[0-9a-f]{40}$/.test(normalized)) {
+      return normalizeTorrentInfoHash(normalized);
+    }
+
+    const infoHash = parseInfoHashFromEnsName(normalized, this.parentName);
+    if (!infoHash) {
+      throw new Error(`locator must be a torrent infohash or btih-* subname under ${this.parentName}`);
+    }
+
+    return infoHash;
+  }
+
+  async resolveLocator(locator) {
+    const torrentInfoHash = this.getTorrentInfoHashFromLocator(locator);
+    const ensName = this.deriveName(torrentInfoHash);
+    const walrusBlobId = await this.getEnsTextRecord({
+      ensName,
+      key: WALRUS_BLOB_TEXT_KEY,
+    });
+    const resource = this.getResource(torrentInfoHash);
+
+    if (walrusBlobId) {
+      const retrievalUrl = await this.getEnsTextRecord({
+        ensName,
+        key: RESOURCE_URL_TEXT_KEY,
+      });
+
+      return {
+        mode: "walrus",
+        torrentInfoHash,
+        ensName,
+        ensNetwork: this.ensNetwork,
+        walrusBlobId,
+        retrievalUrl: retrievalUrl || this.getWalrusRetrievalUrl(walrusBlobId),
+        resource,
+      };
+    }
+
+    if (resource) {
+      return {
+        torrentInfoHash,
+        ...this.resolveResource(torrentInfoHash),
+      };
+    }
+
+    return {
+      mode: "torrent",
+      torrentInfoHash,
+      ensName,
+      ensNetwork: this.ensNetwork,
+      activeBountyId: null,
+      resource: null,
+    };
+  }
+
   async ensureResourceForBounty({
     torrentInfoHash,
     bountyId,
