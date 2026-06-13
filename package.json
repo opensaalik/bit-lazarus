@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "test": "node --test",
     "auth:token": "node scripts/complete-auth-challenge.js",
+    "ens:deploy-resolver": "node scripts/deploy-wildcard-resolver.js",
     "frontend:dev": "vite",
     "frontend:build": "vite build",
     "frontend:preview": "vite preview"
