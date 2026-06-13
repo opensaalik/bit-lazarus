@@ -174,21 +174,34 @@ export function createApp({
     }
   });
 
-  app.post("/arc/transactions/create-bounty", requireAuth, (request, response) => {
-    const arcEscrowService = getArcEscrowService(resourceLocatorService);
-    const rewardAmountUnits = parseRewardAmountUnits(request.body?.rewardAmountUnits);
-    const spec = typeof request.body?.spec === "string" ? request.body.spec : "";
-    const deadlineAt = request.body?.deadlineAt ?? 0;
+  app.post("/arc/transactions/create-bounty", requireAuth, async (request, response, next) => {
+    try {
+      const arcEscrowService = getArcEscrowService(resourceLocatorService);
+      const rewardAmountUnits = parseRewardAmountUnits(request.body?.rewardAmountUnits);
+      const spec = typeof request.body?.spec === "string" ? request.body.spec : "";
+      const deadlineAt = request.body?.deadlineAt ?? 0;
+      const existingBounty = await arcEscrowService.getBountyByInfoHash(request.body?.torrentInfoHash);
 
-    response.json({
-      approvalTransaction: arcEscrowService.buildApprovalTransaction({ rewardAmountUnits }),
-      createBountyTransaction: arcEscrowService.buildCreateBountyTransaction({
-        torrentInfoHash: request.body?.torrentInfoHash,
-        rewardAmountUnits,
-        spec,
-        deadlineAt,
-      }),
-    });
+      if (existingBounty) {
+        response.status(409).json({
+          error: `Arc bounty already exists for this torrent infohash: ${existingBounty.bountyId}`,
+          bounty: existingBounty,
+        });
+        return;
+      }
+
+      response.json({
+        approvalTransaction: arcEscrowService.buildApprovalTransaction({ rewardAmountUnits }),
+        createBountyTransaction: arcEscrowService.buildCreateBountyTransaction({
+          torrentInfoHash: request.body?.torrentInfoHash,
+          rewardAmountUnits,
+          spec,
+          deadlineAt,
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/arc/transactions/claim-bounty", requireAuth, (request, response) => {

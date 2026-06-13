@@ -11,6 +11,18 @@ export async function getArcBountyByInfoHash({ token, torrentInfoHash }) {
   return payload.bounty;
 }
 
+export async function findArcBountyByInfoHash({ token, torrentInfoHash }) {
+  try {
+    return await getArcBountyByInfoHash({ token, torrentInfoHash });
+  } catch (error) {
+    if (error.message === "Arc bounty not found") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 export async function sendPreparedArcTransaction({ arcConfig, transaction }) {
   await switchToArc(arcConfig);
   const txHash = await sendWalletTransaction(transaction);

@@ -9,7 +9,12 @@ import {
 } from "react";
 import { formatBytes, parseTorrentFile, torrentToBase64 } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
-import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
+import {
+  findArcBountyByInfoHash,
+  getArcBountyByInfoHash,
+  getArcConfig,
+  sendPreparedArcTransaction,
+} from "../lib/arc-actions.js";
 import { requestWalletAddress, signWalletMessage } from "../lib/wallet-auth.js";
 
 const AppContext = createContext(null);
@@ -200,6 +205,24 @@ export function AppProvider({ children }) {
           await onArchiveHit(resourcePayload.resolution);
         }
 
+        return null;
+      }
+
+      const existingArcBounty = await findArcBountyByInfoHash({
+        token,
+        torrentInfoHash: torrentMeta.infoHash,
+      });
+
+      if (existingArcBounty) {
+        const existingLocalBounty = bounties.find((record) => record.torrentInfoHash === torrentMeta.infoHash);
+
+        if (existingLocalBounty && typeof onCreated === "function") {
+          onCreated(existingLocalBounty);
+        }
+
+        setStatusMessage(
+          `Arc bounty ${existingArcBounty.bountyId} already exists for this torrent (${existingArcBounty.contractStatus}).`,
+        );
         return null;
       }
 
