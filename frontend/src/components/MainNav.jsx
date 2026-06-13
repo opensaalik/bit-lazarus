@@ -8,6 +8,7 @@ function shortenAddr(addr) {
 
 export default function MainNav() {
   const { currentUser, token, handleLogout, loading } = useApp();
+  const logoUrl = `${import.meta.env.BASE_URL}bit-lazarus-logo.svg`;
 
   return (
     <header className="main-nav glass-panel">
@@ -16,7 +17,7 @@ export default function MainNav() {
           <img
             alt="Bit Lazarus"
             className="main-nav-logo-image"
-            src="/bit-lazarus-logo.svg"
+            src={logoUrl}
           />
         </NavLink>
       </div>
