@@ -3,6 +3,8 @@
 .tmp/
 node_modules/
 dist/
+.env
+.env.*
 data/
 cache/
 out/
