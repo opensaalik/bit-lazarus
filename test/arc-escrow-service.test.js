@@ -37,11 +37,13 @@ test("Arc escrow service maps contract statuses to ENS locator statuses", () => 
   assert.equal(normalizeArcStatus(2), "CLAIMED");
   assert.equal(normalizeArcStatus(3), "SUBMITTED");
   assert.equal(normalizeArcStatus(4), "RESOLVED");
+  assert.equal(normalizeArcStatus(7), "CANCELED");
   assert.equal(getLocatorStatusForArcStatus(1), "open");
   assert.equal(getLocatorStatusForArcStatus(2), "claimed");
   assert.equal(getLocatorStatusForArcStatus(3), "claimed");
   assert.equal(getLocatorStatusForArcStatus(4), "archived");
   assert.equal(getLocatorStatusForArcStatus(5), "closed");
+  assert.equal(getLocatorStatusForArcStatus(7), "closed");
 });
 
 test("Arc escrow service builds USDC approval transactions", () => {
@@ -107,6 +109,10 @@ test("Arc escrow service builds lifecycle transaction payloads", () => {
       walrusBlobId: "walrus_blob_abcdef123456",
     }).data,
   });
+  const cancel = decodeFunctionData({
+    abi: arcEscrowAbi,
+    data: service.buildCancelBountyTransaction({ bountyId: 7 }).data,
+  });
 
   assert.equal(claim.functionName, "claimBounty");
   assert.deepEqual(claim.args, [7n]);
@@ -114,6 +120,8 @@ test("Arc escrow service builds lifecycle transaction payloads", () => {
   assert.deepEqual(submit.args, [7n, `0x${"a".repeat(64)}`, "walrus_blob_abcdef123456"]);
   assert.equal(confirm.functionName, "confirmDelivery");
   assert.deepEqual(confirm.args, [7n, "walrus_blob_abcdef123456"]);
+  assert.equal(cancel.functionName, "cancelBounty");
+  assert.deepEqual(cancel.args, [7n]);
 });
 
 test("Arc escrow service formats contract bounty state for the app", () => {

@@ -288,6 +288,15 @@ export function createApp({
     });
   });
 
+  app.post("/arc/transactions/cancel-bounty", requireAuth, (request, response) => {
+    const arcEscrowService = getArcEscrowService(resourceLocatorService);
+    response.json({
+      transaction: arcEscrowService.buildCancelBountyTransaction({
+        bountyId: request.body?.bountyId,
+      }),
+    });
+  });
+
   app.get("/ens/ccip/:sender/:data", async (request, response, next) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });

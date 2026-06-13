@@ -14,7 +14,8 @@ contract BitLazarusArcEscrow {
         Submitted,
         Resolved,
         Refunded,
-        Disputed
+        Disputed,
+        Canceled
     }
 
     struct Bounty {
@@ -50,6 +51,7 @@ contract BitLazarusArcEscrow {
     event DeliveryConfirmed(uint256 indexed bountyId, address indexed hunter, bytes32 deliveryHash, string walrusBlobId);
     event BountyRefunded(uint256 indexed bountyId, address indexed requester);
     event BountyDisputed(uint256 indexed bountyId, address indexed requester);
+    event BountyCanceled(uint256 indexed bountyId, address indexed requester);
 
     error InvalidInfoHash();
     error InvalidReward();
@@ -153,6 +155,22 @@ contract BitLazarusArcEscrow {
         emit BountyDisputed(bountyId, msg.sender);
     }
 
+    function cancelBounty(uint256 bountyId) external {
+        Bounty storage bounty = requireBounty(bountyId);
+        if (bounty.requester != msg.sender) revert NotRequester(msg.sender);
+        if (bounty.status != Status.Open && bounty.status != Status.Claimed) {
+            revert InvalidStatus(Status.Open, bounty.status);
+        }
+
+        bytes20 infoHash = bounty.infoHash;
+        bounty.status = Status.Canceled;
+        delete bountyIdByInfoHash[infoHash];
+
+        if (!usdc.transfer(bounty.requester, bounty.rewardAmount)) revert TransferFailed();
+
+        emit BountyCanceled(bountyId, msg.sender);
+    }
+
     function refundExpired(uint256 bountyId) external {
         Bounty storage bounty = requireBounty(bountyId);
         if (bounty.requester != msg.sender) revert NotRequester(msg.sender);
@@ -164,6 +182,7 @@ contract BitLazarusArcEscrow {
         }
 
         bounty.status = Status.Refunded;
+        delete bountyIdByInfoHash[bounty.infoHash];
 
         if (!usdc.transfer(bounty.requester, bounty.rewardAmount)) revert TransferFailed();
 

@@ -115,6 +115,13 @@ export const arcEscrowAbi = [
     inputs: [{ name: "bountyId", type: "uint256" }],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "cancelBounty",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bountyId", type: "uint256" }],
+    outputs: [],
+  },
 ];
 
 export const erc20ApprovalAbi = [
@@ -138,6 +145,7 @@ const ARC_STATUS_BY_INDEX = [
   "RESOLVED",
   "REFUNDED",
   "DISPUTED",
+  "CANCELED",
 ];
 
 function assertString(value, fieldName) {
@@ -198,6 +206,7 @@ export function getLocatorStatusForArcStatus(status) {
       return "archived";
     case "REFUNDED":
     case "DISPUTED":
+    case "CANCELED":
       return "closed";
     default:
       return "";
@@ -350,6 +359,10 @@ export class ArcEscrowService {
 
   buildRefundExpiredTransaction({ bountyId }) {
     return this.buildEscrowTransaction("refundExpired", [BigInt(bountyId)]);
+  }
+
+  buildCancelBountyTransaction({ bountyId }) {
+    return this.buildEscrowTransaction("cancelBounty", [BigInt(bountyId)]);
   }
 
   buildEscrowTransaction(functionName, args) {
