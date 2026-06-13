@@ -131,3 +131,30 @@ export function torrentToBase64(arrayBuffer) {
 
   return btoa(binary);
 }
+
+export function rewriteTorrentAnnounceUrls(fileOrBuffer, announceUrls = []) {
+  const bytes = fileOrBuffer instanceof ArrayBuffer
+    ? new Uint8Array(fileOrBuffer)
+    : fileOrBuffer;
+
+  if (!ArrayBuffer.isView(bytes)) {
+    throw new Error("Not a valid .torrent file");
+  }
+
+  const trackers = [...new Set(
+    announceUrls
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )];
+
+  if (trackers.length === 0) {
+    return bytes;
+  }
+
+  const decoded = bencode.decode(bytes);
+  decoded.announce = trackers[0];
+  decoded["announce-list"] = trackers.map((url) => [url]);
+
+  return bencode.encode(decoded);
+}

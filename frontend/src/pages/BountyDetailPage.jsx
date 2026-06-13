@@ -15,7 +15,7 @@ import {
   removeTorrent,
   seedTorrent,
 } from "../lib/webtorrent-client.js";
-import { parseTorrentFile } from "../lib/torrent-parser.js";
+import { parseTorrentFile, rewriteTorrentAnnounceUrls } from "../lib/torrent-parser.js";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -187,7 +187,8 @@ async function createDeliverySeedTorrent({
   }
 
   await safelyRemoveTorrent(nativeSeedTorrent);
-  const metadataTorrent = await addTorrent(loadedTorrentBytes, {
+  const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
+  const metadataTorrent = await addTorrent(trackerOnlyTorrentBytes, {
     announce: trackerAnnounceUrls,
   });
 
@@ -735,7 +736,8 @@ export default function BountyDetailPage() {
         return null;
       });
 
-      const torrent = await addTorrent(loadedTorrentBytes, {
+      const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
+      const torrent = await addTorrent(trackerOnlyTorrentBytes, {
         announce: trackerAnnounceUrls,
       });
       requesterDownloadTorrentRef.current = torrent;
