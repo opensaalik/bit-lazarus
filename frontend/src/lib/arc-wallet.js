@@ -10,7 +10,30 @@ function toQuantity(value) {
   return `0x${Number(value).toString(16)}`;
 }
 
-function normalizeTransaction(transaction) {
+function normalizeQuantity(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value.startsWith("0x") ? value : `0x${BigInt(value).toString(16)}`;
+  }
+
+  return `0x${BigInt(value).toString(16)}`;
+}
+
+async function estimateGas(provider, transaction) {
+  try {
+    return await provider.request({
+      method: "eth_estimateGas",
+      params: [transaction],
+    });
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function normalizeTransaction(provider, transaction) {
   const normalized = {
     from: transaction.from,
     to: transaction.to,
@@ -18,8 +41,16 @@ function normalizeTransaction(transaction) {
     data: transaction.data,
   };
 
-  if (transaction.gas) {
-    normalized.gas = transaction.gas;
+  if (transaction.chainId) {
+    normalized.chainId = toQuantity(transaction.chainId);
+  }
+
+  const gas = normalizeQuantity(transaction.gas ?? transaction.gasLimit)
+    ?? await estimateGas(provider, normalized);
+
+  if (gas) {
+    normalized.gas = gas;
+    normalized.gasLimit = gas;
   }
 
   return normalized;
@@ -59,12 +90,14 @@ export async function switchToArc(arcConfig) {
 export async function sendWalletTransaction(transaction) {
   const provider = getProvider();
   const accounts = await provider.request({ method: "eth_requestAccounts" });
+  const normalizedTransaction = await normalizeTransaction(provider, {
+    ...transaction,
+    from: accounts[0],
+  });
+
   return provider.request({
     method: "eth_sendTransaction",
-    params: [normalizeTransaction({
-      ...transaction,
-      from: accounts[0],
-    })],
+    params: [normalizedTransaction],
   });
 }
 
