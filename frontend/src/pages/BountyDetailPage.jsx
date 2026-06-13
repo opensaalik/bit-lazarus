@@ -9,8 +9,8 @@ import { downloadArchiveResource, uploadWalrusBlob } from "../lib/walrus.js";
 import {
   addTorrent,
   destroyWebTorrentClient,
-  loadTorrentData,
   removeTorrent,
+  seedTorrent,
 } from "../lib/webtorrent-client.js";
 import { parseTorrentFile } from "../lib/torrent-parser.js";
 
@@ -567,8 +567,10 @@ export default function BountyDetailPage() {
       const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
         type: "application/octet-stream",
       });
-      const torrent = await addTorrent(loadedTorrentBytes, {
+      const torrent = await seedTorrent(seedFile, {
         announce: trackerAnnounceUrls,
+        name: loadedTorrentMetadata.name,
+        pieceLength: loadedTorrentMetadata.pieceLength,
       });
 
       if (String(torrent.infoHash).toLowerCase() !== String(bounty?.torrentInfoHash ?? "").toLowerCase()) {
@@ -579,8 +581,6 @@ export default function BountyDetailPage() {
         }));
         throw new Error("The selected file does not reproduce the original torrent info hash.");
       }
-
-      await loadTorrentData(torrent, seedFile);
 
       hunterSeedTorrentRef.current = torrent;
 
