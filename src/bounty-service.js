@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 
@@ -62,6 +62,10 @@ function normalizeTorrentInfoHash(infoHash) {
   }
 
   return normalized;
+}
+
+function normalizeAddressForComparison(value) {
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
 
 const BOUNTY_STATUSES_BY_SETTLEMENT_STATUS = {
@@ -299,6 +303,31 @@ export class BountyService {
     }
 
     return bounty;
+  }
+
+  async deleteBountiesForOtherEscrowContract({ escrowContractAddress }) {
+    assertString(escrowContractAddress, "escrowContractAddress");
+    const currentEscrowAddress = normalizeAddressForComparison(escrowContractAddress);
+    const deletedBounties = [];
+
+    for (const bounty of this.bounties.values()) {
+      const bountyEscrowAddress = normalizeAddressForComparison(bounty.funding?.escrowContractAddress);
+
+      if (bountyEscrowAddress && bountyEscrowAddress !== currentEscrowAddress) {
+        this.bounties.delete(bounty.id);
+        deletedBounties.push(bounty);
+      }
+    }
+
+    for (const bounty of deletedBounties) {
+      await rm(path.join(this.torrentsDir, `${bounty.torrentInfoHash}.torrent`), { force: true });
+    }
+
+    if (deletedBounties.length > 0) {
+      await this.persist();
+    }
+
+    return deletedBounties;
   }
 
   async updateProtocolState({ bountyId, deliveryStatus, completionReadiness }) {

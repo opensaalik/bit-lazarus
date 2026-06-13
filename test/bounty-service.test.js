@@ -197,3 +197,47 @@ test("bounty service unregisters deleted delivery contracts", async () => {
     assert.equal(cleanedBounty.completionReadiness, "PENDING");
   });
 });
+
+test("bounty service deletes bounties from older Arc escrow contracts", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = new BountyService({ dataDir: tempDir });
+    await service.init();
+
+    await service.createBounty({
+      bountyId: "old-bounty",
+      creatorUserId: "user-creator",
+      title: "Old escrow",
+      description: "Clear this bounty after redeploying escrow",
+      torrentInfoHash: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      rewardAmountUnits: 1_000_000,
+      escrowId: "old-tx",
+      escrowStatus: "FUNDED",
+      funding: {
+        chain: "arc",
+        escrowContractAddress: "0x00000000000000000000000000000000000000aa",
+      },
+    });
+    await service.createBounty({
+      bountyId: "current-bounty",
+      creatorUserId: "user-creator",
+      title: "Current escrow",
+      description: "Keep this bounty",
+      torrentInfoHash: "ffffffffffffffffffffffffffffffffffffffff",
+      rewardAmountUnits: 1_000_000,
+      escrowId: "current-tx",
+      escrowStatus: "FUNDED",
+      funding: {
+        chain: "arc",
+        escrowContractAddress: "0x00000000000000000000000000000000000000bb",
+      },
+    });
+
+    const deletedBounties = await service.deleteBountiesForOtherEscrowContract({
+      escrowContractAddress: "0x00000000000000000000000000000000000000BB",
+    });
+
+    assert.deepEqual(deletedBounties.map((bounty) => bounty.id), ["old-bounty"]);
+    assert.equal(service.getBounty("old-bounty"), null);
+    assert.equal(service.getBounty("current-bounty").id, "current-bounty");
+  });
+});

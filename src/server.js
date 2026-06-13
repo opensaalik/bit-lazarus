@@ -918,6 +918,12 @@ export async function startServer({
     authService,
   });
   await resourceLocatorService.init();
+  const deletedForeignEscrowBounties = await bountyService.deleteBountiesForOtherEscrowContract({
+    escrowContractAddress: resourceLocatorService.arcEscrowService.contractAddress,
+  });
+  await protocolService.deleteDeliveryContractsByBountyIds({
+    bountyIds: deletedForeignEscrowBounties.map((bounty) => bounty.id),
+  });
   const walrusService = createWalrusServiceFromEnv(process.env);
   const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env, { host, port });
 

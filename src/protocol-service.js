@@ -117,6 +117,26 @@ export class ProtocolService {
     return staleContracts;
   }
 
+  async deleteDeliveryContractsByBountyIds({ bountyIds }) {
+    if (!Array.isArray(bountyIds)) {
+      throw new Error("bountyIds must be an array");
+    }
+
+    const bountyIdSet = new Set(bountyIds);
+    const deletedContracts = this.listDeliveryContracts()
+      .filter((contract) => bountyIdSet.has(contract.bountyId));
+
+    for (const contract of deletedContracts) {
+      this.deliveryContracts.delete(contract.id);
+    }
+
+    if (deletedContracts.length > 0) {
+      await this.persist();
+    }
+
+    return deletedContracts;
+  }
+
   async createDeliveryContract({
     contractId = crypto.randomUUID(),
     bountyId,

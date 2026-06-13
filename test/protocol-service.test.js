@@ -173,6 +173,42 @@ test("protocol service bulk deletes stale requester delivery contracts", async (
   });
 });
 
+test("protocol service deletes delivery contracts for deleted bounties", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = new ProtocolService({ dataDir: tempDir });
+    await service.init();
+
+    await service.createDeliveryContract({
+      contractId: "old-contract",
+      bountyId: "old-bounty",
+      payerUserId: "payer-old",
+      hunterUserId: "hunter-old",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a1",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b1",
+      rewardEscrowId: "old-escrow",
+      rewardAmountUnits: 1_000_000,
+    });
+    await service.createDeliveryContract({
+      contractId: "current-contract",
+      bountyId: "current-bounty",
+      payerUserId: "payer-current",
+      hunterUserId: "hunter-current",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a2",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b2",
+      rewardEscrowId: "current-escrow",
+      rewardAmountUnits: 1_000_000,
+    });
+
+    const deletedContracts = await service.deleteDeliveryContractsByBountyIds({
+      bountyIds: ["old-bounty"],
+    });
+
+    assert.deepEqual(deletedContracts.map((contract) => contract.id), ["old-contract"]);
+    assert.equal(service.getDeliveryContract("old-contract"), null);
+    assert.equal(service.getDeliveryContract("current-contract").id, "current-contract");
+  });
+});
+
 test("protocol service sweeps expired contracts", async () => {
   await withTempDir(async (tempDir) => {
     let now = "2026-04-11T10:00:00.000Z";

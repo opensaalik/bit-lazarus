@@ -110,6 +110,17 @@ After deployment, set:
 ARC_ESCROW_CONTRACT_ADDRESS=<deployed-contract-address>
 ```
 
+For demo deployments, seed the persistent data directory with ten realistic torrent bounties:
+
+```bash
+DATA_DIR=/var/data \
+ENS_PARENT_NAME=bitlazarus.eth \
+ARC_ESCROW_CONTRACT_ADDRESS=<deployed-contract-address> \
+npm run demo:seed-bounties
+```
+
+The seed is idempotent and writes five open bounties plus five completed Walrus-style archive entries.
+
 ## Walrus Archive
 
 The app uploads verified recovered files to Walrus before confirming delivery on Arc, then stores the returned blob ID in the Arc escrow contract. ENS wildcard resolution reads the blob ID back from Arc.

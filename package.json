@@ -9,6 +9,7 @@
     "ccip:gateway": "node src/ccip-gateway-server.js",
     "test": "node --test",
     "arc:deploy-escrow": "node scripts/deploy-arc-escrow.js",
+    "demo:seed-bounties": "node scripts/seed-demo-bounties.js",
     "ens:deploy-resolver": "node scripts/deploy-wildcard-resolver.js",
     "frontend:dev": "vite",
     "frontend:build": "vite build",
