@@ -29,7 +29,7 @@ npm install
 ENS_PARENT_NAME=bitlazarus.eth \
 ENS_NETWORK=sepolia \
 ARC_RPC_URL=https://rpc.testnet.arc.network \
-ARC_ESCROW_CONTRACT_ADDRESS=0x831ad29969e853e668ac3e9db4856a1f48acfd0d \
+ARC_ESCROW_CONTRACT_ADDRESS=<arc-escrow-contract-address> \
 WALRUS_PUBLISHER_URL=https://publisher.walrus-testnet.walrus.space \
 WALRUS_AGGREGATOR_URL=https://aggregator.walrus-testnet.walrus.space \
 DATA_DIR=./data/local \
@@ -63,7 +63,7 @@ Use this lighter process when hosting only the ENS offchain gateway:
 ENS_PARENT_NAME=bitlazarus.eth \
 ENS_NETWORK=sepolia \
 ARC_RPC_URL=https://rpc.testnet.arc.network \
-ARC_ESCROW_CONTRACT_ADDRESS=0x831ad29969e853e668ac3e9db4856a1f48acfd0d \
+ARC_ESCROW_CONTRACT_ADDRESS=<arc-escrow-contract-address> \
 DATA_DIR=./data/gateway \
 npm run ccip:gateway
 ```

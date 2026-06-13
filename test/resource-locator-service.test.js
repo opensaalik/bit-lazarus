@@ -17,7 +17,7 @@ const resolverReadAbi = parseAbi([
   "function addr(bytes32 node) view returns (address)",
 ]);
 
-const escrowAddress = "0x831ad29969e853e668ac3e9db4856a1f48acfd0d";
+const escrowAddress = "0x1111111111111111111111111111111111111111";
 const usdcAddress = "0x3600000000000000000000000000000000000000";
 const zeroAddress = "0x0000000000000000000000000000000000000000";
 

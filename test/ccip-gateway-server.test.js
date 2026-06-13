@@ -14,7 +14,7 @@ const resolverReadAbi = parseAbi([
   "function text(bytes32 node, string key) view returns (string)",
 ]);
 
-const escrowAddress = "0x831ad29969e853e668ac3e9db4856a1f48acfd0d";
+const escrowAddress = "0x1111111111111111111111111111111111111111";
 const usdcAddress = "0x3600000000000000000000000000000000000000";
 const zeroAddress = "0x0000000000000000000000000000000000000000";
 
@@ -83,7 +83,7 @@ test("CCIP gateway serves ENS wildcard reads without starting the full node", as
     service: "bit-lazarus-ccip-gateway",
     parentName: "bitlazarus.eth",
     ensNetwork: "sepolia",
-    arcEscrowContractAddress: "0x831AD29969E853e668AC3e9Db4856a1f48aCFd0d",
+    arcEscrowContractAddress: "0x1111111111111111111111111111111111111111",
   });
 
   const ensName = "btih-abababababababababababababababababababab.bitlazarus.eth";
