@@ -1,47 +1,30 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  createPublicClient,
-  createWalletClient,
-  getAddress,
-  http,
-  isAddress,
-  isAddressEqual,
-  labelhash,
+  decodeAbiParameters,
+  decodeFunctionData,
+  encodeAbiParameters,
+  hexToBytes,
+  isHex,
   namehash,
   parseAbi,
-  zeroAddress,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { normalize } from "viem/ens";
-import { sepolia } from "viem/chains";
 
-const SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS = "0xdedb92913a25abe1f7bcdd85d8a344a43b398b67";
-const WALRUS_BLOB_TEXT_KEY = "bitlazarus.walrus.blob";
-const ENS_V2_STATUS_REGISTERED = 2;
-const ENS_V2_DEFAULT_EXPIRY_SECONDS = 365 * 24 * 60 * 60;
+const WALRUS_BLOB_TEXT_KEY = "walrus.blob";
+const LEGACY_WALRUS_BLOB_TEXT_KEY = "bitlazarus.walrus.blob";
+const INFOHASH_TEXT_KEY = "infohash";
+const STATUS_TEXT_KEY = "status";
+const RESOURCE_URL_TEXT_KEY = "url";
+const DESCRIPTION_TEXT_KEY = "description";
+const AVATAR_TEXT_KEY = "avatar";
+const DEFAULT_ENS_NETWORK = "sepolia";
+const DEFAULT_WALRUS_GATEWAY_BASE_URL = "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
-const ENS_V2_ROLE_SET_SUBREGISTRY = 1n << 20n;
-const ENS_V2_ROLE_SET_RESOLVER = 1n << 24n;
-const ENS_V2_ROLE_SET_SUBREGISTRY_ADMIN = ENS_V2_ROLE_SET_SUBREGISTRY << 128n;
-const ENS_V2_ROLE_SET_RESOLVER_ADMIN = ENS_V2_ROLE_SET_RESOLVER << 128n;
-const ENS_V2_ROLE_CAN_TRANSFER_ADMIN = 1n << 132n;
-const ENS_V2_REGISTRATION_ROLE_BITMAP =
-  ENS_V2_ROLE_SET_SUBREGISTRY |
-  ENS_V2_ROLE_SET_SUBREGISTRY_ADMIN |
-  ENS_V2_ROLE_SET_RESOLVER |
-  ENS_V2_ROLE_SET_RESOLVER_ADMIN |
-  ENS_V2_ROLE_CAN_TRANSFER_ADMIN;
-
-const publicResolverAbi = parseAbi([
-  "function setText(bytes32 node, string key, string value)",
-]);
-
-const ensV2RegistryAbi = parseAbi([
-  "function getSubregistry(string label) view returns (address)",
-  "function getResolver(string label) view returns (address)",
-  "function getState(uint256 anyId) view returns ((uint8 status,uint64 expiry,address latestOwner,uint256 tokenId,uint256 resource))",
-  "function register(string label, address owner, address registry, address resolver, uint256 roleBitmap, uint64 expiry) returns (uint256)",
+const resolverReadAbi = parseAbi([
+  "function resolve(bytes name, bytes data) view returns (bytes)",
+  "function text(bytes32 node, string key) view returns (string)",
+  "function addr(bytes32 node) view returns (address)",
 ]);
 
 function assertString(value, fieldName) {
@@ -85,269 +68,139 @@ function normalizeWalrusBlobId(value) {
   return trimmed;
 }
 
+function normalizeParentName(parentName) {
+  assertString(parentName, "ENS_PARENT_NAME");
+  return normalize(parentName.trim());
+}
+
 function appendUnique(values, nextValue) {
   return values.includes(nextValue) ? values : [...values, nextValue];
 }
 
-function normalizePrivateKey(value) {
-  assertString(value, "ENS_PRIVATE_KEY");
-  const trimmed = value.trim();
-  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+function getLocatorStatusText(locatorStatus) {
+  switch (locatorStatus) {
+    case "ARCHIVED":
+      return "archived";
+    case "SEEDING":
+      return "claimed";
+    case "PENDING_RECOVERY":
+      return "open";
+    default:
+      return "";
+  }
 }
 
-function normalizeAddress(value, fieldName) {
-  assertString(value, fieldName);
-  const trimmed = value.trim();
-
-  if (!isAddress(trimmed)) {
-    throw new Error(`${fieldName} must be an EVM address`);
+function decodeDnsEncodedName(encodedName) {
+  if (!isHex(encodedName)) {
+    throw new Error("dns-encoded ENS name must be hex");
   }
 
-  return getAddress(trimmed);
+  const bytes = hexToBytes(encodedName);
+  const labels = [];
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    const length = bytes[offset];
+    offset += 1;
+
+    if (length === 0) {
+      break;
+    }
+
+    if (offset + length > bytes.length) {
+      throw new Error("invalid dns-encoded ENS name");
+    }
+
+    labels.push(new TextDecoder().decode(bytes.slice(offset, offset + length)));
+    offset += length;
+  }
+
+  return normalize(labels.join("."));
 }
 
-function normalizeOptionalAddress(value, fieldName) {
-  if (value === null || value === undefined || value === "") {
+function parseInfoHashFromEnsName(ensName, parentName) {
+  const normalizedName = normalize(ensName);
+  const normalizedParent = normalizeParentName(parentName);
+  const suffix = `.${normalizedParent}`;
+
+  if (!normalizedName.endsWith(suffix)) {
     return null;
   }
 
-  return normalizeAddress(value, fieldName);
+  const label = normalizedName.slice(0, -suffix.length);
+  const match = /^btih-([0-9a-f]{40})$/.exec(label);
+  return match?.[1] ?? null;
 }
 
-function normalizeParentName(parentName) {
-  assertString(parentName, "parentName");
-  return normalize(parentName.trim());
-}
-
-function getParentLabel(parentName) {
-  const labels = normalizeParentName(parentName).split(".");
-
-  if (labels.length !== 2 || labels[1] !== "eth") {
-    throw new Error("ENSv2 adapter currently supports second-level .eth parent names only");
+function decodeCcipReadPayload(data) {
+  if (!isHex(data)) {
+    throw new Error("CCIP calldata must be hex");
   }
 
-  return labels[0];
-}
+  try {
+    const decoded = decodeFunctionData({
+      abi: resolverReadAbi,
+      data,
+    });
 
-function normalizeBigInt(value, fieldName) {
-  if (typeof value === "bigint") {
-    return value;
-  }
-
-  assertString(value, fieldName);
-  return BigInt(value.trim());
-}
-
-export class ViemEnsV2LocatorAdapter {
-  constructor({
-    parentName = "lazarus.eth",
-    network = "sepolia",
-    rpcUrl,
-    privateKey,
-    parentRegistryAddress = SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS,
-    subregistryAddress = null,
-    resolverAddress = null,
-    subnameOwner = null,
-    roleBitmap = ENS_V2_REGISTRATION_ROLE_BITMAP,
-    expirySeconds = ENS_V2_DEFAULT_EXPIRY_SECONDS,
-    chain = sepolia,
-    publicClient = null,
-    walletClient = null,
-    account = null,
-    now = () => Math.floor(Date.now() / 1000),
-  } = {}) {
-    if (network !== "sepolia") {
-      throw new Error("ViemEnsV2LocatorAdapter currently supports ENSv2 writes on Sepolia only");
-    }
-
-    this.parentName = normalizeParentName(parentName);
-    this.parentLabel = getParentLabel(this.parentName);
-    this.network = network;
-    this.parentRegistryAddress = normalizeAddress(parentRegistryAddress, "parentRegistryAddress");
-    this.subregistryAddress = normalizeOptionalAddress(subregistryAddress, "subregistryAddress");
-    this.resolverAddress = normalizeOptionalAddress(resolverAddress, "resolverAddress");
-    this.subnameOwner = subnameOwner ? normalizeAddress(subnameOwner, "subnameOwner") : null;
-    this.roleBitmap = typeof roleBitmap === "bigint"
-      ? roleBitmap
-      : normalizeBigInt(String(roleBitmap), "roleBitmap");
-    this.expirySeconds = Number(expirySeconds);
-    this.chain = chain;
-    this.account = account ?? privateKeyToAccount(normalizePrivateKey(privateKey));
-    this.subnameOwner = this.subnameOwner ?? this.account.address;
-    this.now = now;
-    const transport = rpcUrl ? http(rpcUrl) : null;
-    this.publicClient = publicClient ?? createPublicClient({ chain, transport });
-    this.walletClient = walletClient ?? createWalletClient({ account: this.account, chain, transport });
-  }
-
-  deriveLabel(torrentInfoHash) {
-    return `b-${torrentInfoHash.slice(0, 16)}`;
-  }
-
-  deriveName(torrentInfoHash) {
-    return normalize(`${this.deriveLabel(torrentInfoHash)}.${this.parentName}`);
-  }
-
-  async ensureSubname({ torrentInfoHash }) {
-    const label = this.deriveLabel(torrentInfoHash);
-    const ensName = this.deriveName(torrentInfoHash);
-    const registry = await this.getSubregistryAddress();
-    const resolver = await this.getResolverAddress();
-    const state = await this.readState(registry, label);
-
-    if (Number(state.status) === ENS_V2_STATUS_REGISTERED) {
+    if (decoded.functionName === "resolve") {
       return {
-        ensName,
-        ensNetwork: this.network,
-        created: false,
-        owner: state.latestOwner,
-        resolver,
-        registry,
+        dnsEncodedName: decoded.args[0],
+        resolverData: decoded.args[1],
       };
     }
-
-    const expiry = BigInt(this.now() + this.expirySeconds);
-    const hash = await this.walletClient.writeContract({
-      address: registry,
-      abi: ensV2RegistryAbi,
-      functionName: "register",
-      args: [label, this.subnameOwner, zeroAddress, resolver, this.roleBitmap, expiry],
-      account: this.account,
-      chain: this.chain,
-    });
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-
-    return {
-      ensName,
-      ensNetwork: this.network,
-      created: true,
-      owner: this.subnameOwner,
-      resolver,
-      registry,
-      transactionHash: hash,
-      blockNumber: receipt.blockNumber?.toString?.() ?? null,
-    };
+  } catch {
+    // Some resolvers send abi.encode(name, data) as OffchainLookup.callData.
   }
 
-  async setWalrusBlob({ ensName, walrusBlobId }) {
-    const normalizedEnsName = normalize(ensName);
-    const resolver = await this.getResolverAddress();
-    const hash = await this.walletClient.writeContract({
-      address: resolver,
-      abi: publicResolverAbi,
-      functionName: "setText",
-      args: [namehash(normalizedEnsName), WALRUS_BLOB_TEXT_KEY, walrusBlobId],
-      account: this.account,
-      chain: this.chain,
-    });
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+  try {
+    const [dnsEncodedName, resolverData] = decodeAbiParameters(
+      [{ type: "bytes" }, { type: "bytes" }],
+      data,
+    );
 
-    return {
-      ensName: normalizedEnsName,
-      ensNetwork: this.network,
-      textRecords: {
-        [WALRUS_BLOB_TEXT_KEY]: walrusBlobId,
-      },
-      transactionHash: hash,
-      blockNumber: receipt.blockNumber?.toString?.() ?? null,
-    };
-  }
-
-  async getSubregistryAddress() {
-    if (!this.subregistryAddress) {
-      const subregistryAddress = await this.publicClient.readContract({
-        address: this.parentRegistryAddress,
-        abi: ensV2RegistryAbi,
-        functionName: "getSubregistry",
-        args: [this.parentLabel],
-      });
-
-      if (isAddressEqual(subregistryAddress, zeroAddress)) {
-        throw new Error(`ENSv2 parent has no subregistry: ${this.parentName}`);
-      }
-
-      this.subregistryAddress = getAddress(subregistryAddress);
-    }
-
-    return this.subregistryAddress;
-  }
-
-  async getResolverAddress() {
-    if (!this.resolverAddress) {
-      const resolverAddress = await this.publicClient.readContract({
-        address: this.parentRegistryAddress,
-        abi: ensV2RegistryAbi,
-        functionName: "getResolver",
-        args: [this.parentLabel],
-      });
-
-      if (isAddressEqual(resolverAddress, zeroAddress)) {
-        throw new Error(`ENSv2 parent has no resolver: ${this.parentName}`);
-      }
-
-      this.resolverAddress = getAddress(resolverAddress);
-    }
-
-    return this.resolverAddress;
-  }
-
-  async readState(registry, label) {
-    return this.publicClient.readContract({
-      address: registry,
-      abi: ensV2RegistryAbi,
-      functionName: "getState",
-      args: [BigInt(labelhash(label))],
-    });
+    return { dnsEncodedName, resolverData };
+  } catch {
+    throw new Error("unsupported CCIP resolver calldata");
   }
 }
 
-export function createEnsLocatorAdapterFromEnv(environment = process.env) {
-  const parentName = environment.ENS_PARENT_NAME;
-  const network = environment.ENS_NETWORK ?? "sepolia";
-  const rpcUrl = environment.ENS_RPC_URL ?? environment.ETH_RPC_URL;
-  const privateKey = environment.ENS_PRIVATE_KEY ?? environment.PRIVATE_KEY;
+function encodeResolverString(value) {
+  return encodeAbiParameters([{ type: "string" }], [value ?? ""]);
+}
 
-  if (!parentName) {
-    throw new Error("ENS_PARENT_NAME is required");
-  }
+function encodeResolverAddress(value) {
+  return encodeAbiParameters([{ type: "address" }], [value ?? "0x0000000000000000000000000000000000000000"]);
+}
 
-  if (!rpcUrl) {
-    throw new Error("ENS_RPC_URL or ETH_RPC_URL is required");
-  }
-
-  if (!privateKey) {
-    throw new Error("ENS_PRIVATE_KEY or PRIVATE_KEY is required");
-  }
-
-  return new ViemEnsV2LocatorAdapter({
-    parentName,
-    network,
-    rpcUrl,
-    privateKey,
-    parentRegistryAddress: environment.ENS_V2_PARENT_REGISTRY_ADDRESS ?? SEPOLIA_ENS_V2_PARENT_REGISTRY_ADDRESS,
-    subregistryAddress: environment.ENS_V2_SUBREGISTRY_ADDRESS ?? null,
-    resolverAddress: environment.ENS_V2_RESOLVER_ADDRESS ?? null,
-    subnameOwner: environment.ENS_SUBNAME_OWNER ?? null,
-    roleBitmap: environment.ENS_V2_REGISTRATION_ROLE_BITMAP ?? ENS_V2_REGISTRATION_ROLE_BITMAP,
-    expirySeconds: environment.ENS_V2_EXPIRY_SECONDS ?? ENS_V2_DEFAULT_EXPIRY_SECONDS,
+export function createResourceLocatorServiceFromEnv(environment = process.env, options = {}) {
+  return new ResourceLocatorService({
+    ...options,
+    parentName: environment.ENS_PARENT_NAME,
+    ensNetwork: environment.ENS_NETWORK ?? DEFAULT_ENS_NETWORK,
+    walrusGatewayBaseUrl: environment.WALRUS_GATEWAY_BASE_URL ?? options.walrusGatewayBaseUrl,
+    escrowAddress: environment.RESOURCE_LOCATOR_ESCROW_ADDRESS ?? environment.ESCROW_CONTRACT_ADDRESS ?? null,
+    avatarUrl: environment.RESOURCE_LOCATOR_AVATAR_URL ?? null,
   });
 }
 
 export class ResourceLocatorService {
   constructor({
     dataDir = path.resolve("data", "resources"),
-    ensAdapter,
-    walrusGatewayBaseUrl = "https://aggregator.walrus-testnet.walrus.space/v1/blobs",
+    parentName,
+    ensNetwork = DEFAULT_ENS_NETWORK,
+    walrusGatewayBaseUrl = DEFAULT_WALRUS_GATEWAY_BASE_URL,
+    escrowAddress = null,
+    avatarUrl = null,
     now = () => new Date().toISOString(),
   } = {}) {
-    if (!ensAdapter) {
-      throw new Error("ensAdapter is required");
-    }
-
+    this.parentName = normalizeParentName(parentName);
+    this.ensNetwork = ensNetwork;
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "resources.json");
-    this.ensAdapter = ensAdapter;
     this.walrusGatewayBaseUrl = walrusGatewayBaseUrl.replace(/\/$/, "");
+    this.escrowAddress = normalizeOptionalString(escrowAddress, "escrowAddress");
+    this.avatarUrl = normalizeOptionalString(avatarUrl, "avatarUrl");
     this.now = now;
     this.resources = new Map();
   }
@@ -376,7 +229,21 @@ export class ResourceLocatorService {
     return this.resources.get(normalizeTorrentInfoHash(torrentInfoHash)) ?? null;
   }
 
-  async ensureResourceForBounty({ torrentInfoHash, bountyId }) {
+  deriveLabel(torrentInfoHash) {
+    return `btih-${normalizeTorrentInfoHash(torrentInfoHash)}`;
+  }
+
+  deriveName(torrentInfoHash) {
+    return normalize(`${this.deriveLabel(torrentInfoHash)}.${this.parentName}`);
+  }
+
+  async ensureResourceForBounty({
+    torrentInfoHash,
+    bountyId,
+    title = null,
+    description = null,
+    rewardSats = null,
+  }) {
     const normalizedInfoHash = normalizeTorrentInfoHash(torrentInfoHash);
     assertString(bountyId, "bountyId");
 
@@ -386,18 +253,20 @@ export class ResourceLocatorService {
       if (existing.locatorStatus !== "ARCHIVED") {
         existing.activeBountyId = existing.activeBountyId ?? bountyId;
       }
+      existing.title = existing.title ?? normalizeOptionalString(title, "title");
+      existing.description = existing.description ?? normalizeOptionalString(description, "description");
+      existing.rewardSats = existing.rewardSats ?? rewardSats ?? null;
       existing.updatedAt = this.now();
       await this.persist();
       return { resource: existing, created: false };
     }
 
-    const ens = await this.ensAdapter.ensureSubname({ torrentInfoHash: normalizedInfoHash });
     const timestamp = this.now();
     const resource = {
       id: normalizedInfoHash,
       torrentInfoHash: normalizedInfoHash,
-      ensName: ens.ensName,
-      ensNetwork: ens.ensNetwork,
+      ensName: this.deriveName(normalizedInfoHash),
+      ensNetwork: this.ensNetwork,
       locatorStatus: "PENDING_RECOVERY",
       bountyIds: [bountyId],
       activeBountyId: bountyId,
@@ -405,6 +274,9 @@ export class ResourceLocatorService {
       walrusBlobId: null,
       walrusObjectId: null,
       retrievalUrl: null,
+      title: normalizeOptionalString(title, "title"),
+      description: normalizeOptionalString(description, "description"),
+      rewardSats: rewardSats ?? null,
       archivedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -447,10 +319,6 @@ export class ResourceLocatorService {
     resource.archivedAt = this.now();
     resource.updatedAt = resource.archivedAt;
 
-    await this.ensAdapter.setWalrusBlob({
-      ensName: resource.ensName,
-      walrusBlobId: normalizedWalrusBlobId,
-    });
     await this.persist();
     return resource;
   }
@@ -476,6 +344,60 @@ export class ResourceLocatorService {
       activeBountyId: resource.activeBountyId,
       resource,
     };
+  }
+
+  getEnsTextRecord({ ensName, key }) {
+    assertString(key, "key");
+    const infoHash = parseInfoHashFromEnsName(ensName, this.parentName);
+
+    if (!infoHash) {
+      return "";
+    }
+
+    const resource = this.resources.get(infoHash);
+
+    switch (key) {
+      case INFOHASH_TEXT_KEY:
+        return infoHash;
+      case STATUS_TEXT_KEY:
+        return resource ? getLocatorStatusText(resource.locatorStatus) : "";
+      case WALRUS_BLOB_TEXT_KEY:
+      case LEGACY_WALRUS_BLOB_TEXT_KEY:
+        return resource?.walrusBlobId ?? "";
+      case RESOURCE_URL_TEXT_KEY:
+        return resource?.retrievalUrl ?? "";
+      case DESCRIPTION_TEXT_KEY:
+        return resource?.description ?? resource?.title ?? "";
+      case AVATAR_TEXT_KEY:
+        return this.avatarUrl ?? "";
+      default:
+        return "";
+    }
+  }
+
+  answerCcipRead({ data }) {
+    assertString(data, "data");
+    const { dnsEncodedName, resolverData } = decodeCcipReadPayload(data);
+    const ensName = decodeDnsEncodedName(dnsEncodedName);
+    const decoded = decodeFunctionData({
+      abi: resolverReadAbi,
+      data: resolverData,
+    });
+
+    if (decoded.functionName === "text") {
+      const [, key] = decoded.args;
+      return {
+        data: encodeResolverString(this.getEnsTextRecord({ ensName, key })),
+      };
+    }
+
+    if (decoded.functionName === "addr") {
+      return {
+        data: encodeResolverAddress(this.escrowAddress),
+      };
+    }
+
+    throw new Error(`unsupported resolver function: ${decoded.functionName}`);
   }
 
   getWalrusRetrievalUrl(walrusBlobId) {

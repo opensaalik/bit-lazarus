@@ -3,11 +3,18 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
+import { decodeAbiParameters, encodeAbiParameters, encodeFunctionData, namehash, parseAbi, toHex } from "viem";
+import { packetToBytes } from "viem/ens";
 import {
-  createEnsLocatorAdapterFromEnv,
+  createResourceLocatorServiceFromEnv,
   ResourceLocatorService,
-  ViemEnsV2LocatorAdapter,
 } from "../src/resource-locator-service.js";
+
+const resolverReadAbi = parseAbi([
+  "function resolve(bytes name, bytes data) view returns (bytes)",
+  "function text(bytes32 node, string key) view returns (string)",
+  "function addr(bytes32 node) view returns (address)",
+]);
 
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-resource-"));
@@ -19,70 +26,51 @@ async function withTempDir(run) {
   }
 }
 
-function createTestEnsV2Adapter({ parentName = "lazarus.eth", reads = [], writes = [] } = {}) {
-  const account = {
-    address: "0x00000000000000000000000000000000000000aa",
-  };
-  const childRegistry = "0x00000000000000000000000000000000000000bb";
-  const resolver = "0x00000000000000000000000000000000000000cc";
-
-  return {
-    adapter: new ViemEnsV2LocatorAdapter({
-      parentName,
-      publicClient: {
-        async readContract(call) {
-          reads.push(call);
-          if (call.functionName === "getSubregistry") {
-            return childRegistry;
-          }
-          if (call.functionName === "getResolver") {
-            return resolver;
-          }
-          if (call.functionName === "getState") {
-            return {
-              status: 0,
-              expiry: 0n,
-              latestOwner: "0x0000000000000000000000000000000000000000",
-              tokenId: 0n,
-              resource: 0n,
-            };
-          }
-
-          throw new Error(`unexpected read: ${call.functionName}`);
-        },
-        async waitForTransactionReceipt({ hash }) {
-          return { transactionHash: hash, blockNumber: 789n };
-        },
-      },
-      walletClient: {
-        async writeContract(call) {
-          writes.push(call);
-          return "0x123789";
-        },
-      },
-      account,
-      now: () => 1_700_000_000,
-    }),
-    account,
-    childRegistry,
-    resolver,
-    reads,
-    writes,
-  };
+function createService(dataDir, options = {}) {
+  return new ResourceLocatorService({
+    dataDir,
+    parentName: "bitlazarus.eth",
+    walrusGatewayBaseUrl: "https://walrus.example/blobs",
+    ...options,
+  });
 }
 
-test("resource locator creates one deterministic ENS subname per unique torrent", async () => {
+function encodeResolveCall(ensName, resolverData) {
+  return encodeFunctionData({
+    abi: resolverReadAbi,
+    functionName: "resolve",
+    args: [toHex(packetToBytes(ensName)), resolverData],
+  });
+}
+
+function encodeTextCall(ensName, key) {
+  return encodeFunctionData({
+    abi: resolverReadAbi,
+    functionName: "text",
+    args: [namehash(ensName), key],
+  });
+}
+
+function decodeStringResponse(data) {
+  const [value] = decodeAbiParameters([{ type: "string" }], data);
+  return value;
+}
+
+function decodeAddressResponse(data) {
+  const [value] = decodeAbiParameters([{ type: "address" }], data);
+  return value;
+}
+
+test("resource locator derives one wildcard ENS name per unique torrent", async () => {
   await withTempDir(async (tempDir) => {
-    const { adapter } = createTestEnsV2Adapter();
-    const service = new ResourceLocatorService({
-      dataDir: tempDir,
-      ensAdapter: adapter,
-    });
+    const service = createService(tempDir);
     await service.init();
 
     const first = await service.ensureResourceForBounty({
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
       bountyId: "bounty-1",
+      title: "Lost distro ISO",
+      rewardSats: 5000,
     });
     const second = await service.ensureResourceForBounty({
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
@@ -91,20 +79,17 @@ test("resource locator creates one deterministic ENS subname per unique torrent"
 
     assert.equal(first.created, true);
     assert.equal(second.created, false);
-    assert.equal(first.resource.ensName, "b-0123456789abcdef.lazarus.eth");
+    assert.equal(first.resource.ensName, "btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth");
     assert.equal(second.resource.ensName, first.resource.ensName);
     assert.deepEqual(second.resource.bountyIds, ["bounty-1", "bounty-2"]);
+    assert.equal(second.resource.title, "Lost distro ISO");
+    assert.equal(second.resource.rewardSats, 5000);
   });
 });
 
 test("resource locator resolves to torrent before archive and Walrus after archive", async () => {
   await withTempDir(async (tempDir) => {
-    const { adapter } = createTestEnsV2Adapter();
-    const service = new ResourceLocatorService({
-      dataDir: tempDir,
-      ensAdapter: adapter,
-      walrusGatewayBaseUrl: "https://walrus.example/blobs",
-    });
+    const service = createService(tempDir);
     await service.init();
 
     await service.ensureResourceForBounty({
@@ -131,69 +116,115 @@ test("resource locator resolves to torrent before archive and Walrus after archi
   });
 });
 
-test("viem ENSv2 adapter registers subnames through the parent child registry", async () => {
-  const { account, adapter, childRegistry, reads, resolver, writes } = createTestEnsV2Adapter();
+test("resource locator answers ENSIP-10 text lookups from canonical resource state", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = createService(tempDir);
+    await service.init();
 
-  const result = await adapter.ensureSubname({
-    torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
+    await service.ensureResourceForBounty({
+      torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      bountyId: "bounty-b",
+      description: "Recovered public domain footage",
+    });
+    await service.archiveResource({
+      torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      contractId: "contract-b",
+      walrusBlobId: "walrus_blob_bbbbbbbbbbbb",
+    });
+
+    const ensName = "btih-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bitlazarus.eth";
+    const blobResponse = service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob")),
+    });
+    const statusResponse = service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "status")),
+    });
+    const infoHashResponse = service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "infohash")),
+    });
+    const descriptionResponse = service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "description")),
+    });
+
+    assert.equal(decodeStringResponse(blobResponse.data), "walrus_blob_bbbbbbbbbbbb");
+    assert.equal(decodeStringResponse(statusResponse.data), "archived");
+    assert.equal(decodeStringResponse(infoHashResponse.data), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    assert.equal(decodeStringResponse(descriptionResponse.data), "Recovered public domain footage");
   });
-
-  assert.equal(result.ensName, "b-0123456789abcdef.lazarus.eth");
-  assert.equal(result.created, true);
-  assert.equal(result.registry, childRegistry);
-  assert.equal(result.resolver, resolver);
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].address, childRegistry);
-  assert.equal(writes[0].functionName, "register");
-  assert.equal(writes[0].args[0], "b-0123456789abcdef");
-  assert.equal(writes[0].args[1], account.address);
-  assert.equal(writes[0].args[3], resolver);
-  assert.equal(writes[0].args[5], 1731536000n);
-  assert.equal(reads.some((call) => call.functionName === "getSubregistry"), true);
-  assert.equal(reads.some((call) => call.functionName === "getResolver"), true);
 });
 
-test("viem ENSv2 adapter writes Walrus blob text records to the discovered resolver", async () => {
-  const { adapter, resolver, writes } = createTestEnsV2Adapter();
+test("resource locator accepts abi-encoded CCIP callData payloads", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = createService(tempDir);
+    await service.init();
 
-  const result = await adapter.setWalrusBlob({
-    ensName: "b-0123456789abcdef.lazarus.eth",
-    walrusBlobId: "walrus_blob_0123456789",
+    await service.ensureResourceForBounty({
+      torrentInfoHash: "cccccccccccccccccccccccccccccccccccccccc",
+      bountyId: "bounty-c",
+    });
+
+    const ensName = "btih-cccccccccccccccccccccccccccccccccccccccc.bitlazarus.eth";
+    const response = service.answerCcipRead({
+      data: encodeAbiParameters(
+        [{ type: "bytes" }, { type: "bytes" }],
+        [toHex(packetToBytes(ensName)), encodeTextCall(ensName, "status")],
+      ),
+    });
+
+    assert.equal(decodeStringResponse(response.data), "open");
   });
-
-  assert.equal(result.transactionHash, "0x123789");
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].address, resolver);
-  assert.equal(writes[0].functionName, "setText");
-  assert.equal(writes[0].args[1], "bitlazarus.walrus.blob");
-  assert.equal(writes[0].args[2], "walrus_blob_0123456789");
 });
 
-test("ENS adapter factory always requires production ENSv2 configuration", () => {
+test("resource locator answers addr lookups with the escrow contract address", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = createService(tempDir, {
+      escrowAddress: "0x00000000000000000000000000000000000000aa",
+    });
+    await service.init();
+
+    const ensName = "btih-dddddddddddddddddddddddddddddddddddddddd.bitlazarus.eth";
+    const response = service.answerCcipRead({
+      data: encodeResolveCall(
+        ensName,
+        encodeFunctionData({
+          abi: resolverReadAbi,
+          functionName: "addr",
+          args: [namehash(ensName)],
+        }),
+      ),
+    });
+
+    assert.equal(decodeAddressResponse(response.data), "0x00000000000000000000000000000000000000AA");
+  });
+});
+
+test("resource locator returns empty text for unknown wildcard names", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = createService(tempDir);
+    await service.init();
+
+    const ensName = "btih-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.bitlazarus.eth";
+    const response = service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "walrus.blob")),
+    });
+
+    assert.equal(decodeStringResponse(response.data), "");
+  });
+});
+
+test("resource locator factory always builds the wildcard production service", () => {
   assert.throws(
-    () => createEnsLocatorAdapterFromEnv({ ENS_PARENT_NAME: "lazarus.eth" }),
-    /ENS_RPC_URL or ETH_RPC_URL is required/,
-  );
-  assert.throws(
-    () => createEnsLocatorAdapterFromEnv({ ENS_PARENT_NAME: "lazarus.eth", ENS_RPC_URL: "https://rpc.example" }),
-    /ENS_PRIVATE_KEY or PRIVATE_KEY is required/,
-  );
-  assert.throws(
-    () => createEnsLocatorAdapterFromEnv({
-      ENS_RPC_URL: "https://rpc.example",
-      ENS_PRIVATE_KEY: `0x${"1".repeat(64)}`,
-    }),
+    () => createResourceLocatorServiceFromEnv({}),
     /ENS_PARENT_NAME is required/,
   );
-});
 
-test("ENS adapter factory returns the production ENSv2 adapter", () => {
-  const adapter = createEnsLocatorAdapterFromEnv({
-    ENS_PARENT_NAME: "lazarus.eth",
-    ENS_RPC_URL: "https://rpc.example",
-    ENS_PRIVATE_KEY: `0x${"1".repeat(64)}`,
+  const service = createResourceLocatorServiceFromEnv({
+    ENS_PARENT_NAME: "bitlazarus.eth",
+    ENS_NETWORK: "sepolia",
+    WALRUS_GATEWAY_BASE_URL: "https://walrus.example/blobs",
   });
 
-  assert.equal(adapter instanceof ViemEnsV2LocatorAdapter, true);
-  assert.equal(adapter.parentName, "lazarus.eth");
+  assert.equal(service.parentName, "bitlazarus.eth");
+  assert.equal(service.ensNetwork, "sepolia");
+  assert.equal(service.getWalrusRetrievalUrl("blob-1"), "https://walrus.example/blobs/blob-1");
 });

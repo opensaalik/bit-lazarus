@@ -10,7 +10,7 @@ import { createLightningClientFromEnv } from "./lightning-client.js";
 import { createPolarDemoAuthServiceFromEnv } from "./polar-demo-auth-service.js";
 import { createPolarDemoServiceFromEnv } from "./polar-demo-service.js";
 import { ProtocolService } from "./protocol-service.js";
-import { createEnsLocatorAdapterFromEnv, ResourceLocatorService } from "./resource-locator-service.js";
+import { createResourceLocatorServiceFromEnv } from "./resource-locator-service.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { createWebTorrentTrackerServiceFromEnv } from "./webtorrent-tracker-service.js";
 
@@ -94,6 +94,30 @@ export function createApp({
     });
   });
 
+  app.get("/ens/ccip/:sender/:data", (request, response) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    response.json(resourceLocatorService.answerCcipRead({
+      sender: request.params.sender,
+      data: request.params.data,
+    }));
+  });
+
+  app.post("/ens/ccip", (request, response) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    response.json(resourceLocatorService.answerCcipRead({
+      sender: request.body?.sender,
+      data: request.body?.data,
+    }));
+  });
+
   app.post("/auth/challenges", async (request, response) => {
     const challenge = await authService.issueChallenge({
       walletAddress: request.body?.walletAddress,
@@ -162,6 +186,9 @@ export function createApp({
       ? await resourceLocatorService.ensureResourceForBounty({
         torrentInfoHash: body.torrentInfoHash,
         bountyId,
+        title: body.title,
+        description: body.description,
+        rewardSats: body.rewardSats,
       })
       : null;
 
@@ -666,10 +693,8 @@ export async function startServer({
     escrowService,
   });
   await protocolService.init();
-  const resourceLocatorService = new ResourceLocatorService({
+  const resourceLocatorService = createResourceLocatorServiceFromEnv(process.env, {
     dataDir: path.join(dataDir, "resources"),
-    ensAdapter: createEnsLocatorAdapterFromEnv(process.env),
-    walrusGatewayBaseUrl: process.env.WALRUS_GATEWAY_BASE_URL,
   });
   await resourceLocatorService.init();
   const polarDemoService = createPolarDemoServiceFromEnv(process.env);
