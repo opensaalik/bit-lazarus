@@ -40,6 +40,21 @@ The backend runs on:
 
 - `http://127.0.0.1:3000`
 
+The WebTorrent tracker is mounted on the same HTTP server at `/tracker`.
+On Render, the app uses `RENDER_EXTERNAL_HOSTNAME` to advertise:
+
+```bash
+wss://<render-hostname>/tracker
+```
+
+If your host does not set `RENDER_EXTERNAL_HOSTNAME`, configure:
+
+```bash
+WEBTORRENT_TRACKER_PUBLIC_HOST=bit-lazarus.onrender.com
+WEBTORRENT_TRACKER_SCHEME=wss
+WEBTORRENT_TRACKER_PATH=/tracker
+```
+
 ## Run The ENS CCIP Gateway
 
 Use this lighter process when hosting only the ENS offchain gateway:

@@ -738,11 +738,7 @@ export async function startServer({
   });
   await resourceLocatorService.init();
   const walrusService = createWalrusServiceFromEnv(process.env);
-  const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env);
-
-  if (webTorrentTrackerService) {
-    await webTorrentTrackerService.start();
-  }
+  const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env, { host, port });
 
   const app = createApp({
     authService,
@@ -756,6 +752,10 @@ export async function startServer({
   const server = await new Promise((resolve) => {
     const instance = app.listen(port, host, () => resolve(instance));
   });
+
+  if (webTorrentTrackerService) {
+    webTorrentTrackerService.attach(server);
+  }
 
   const protocolSweepTimer = setInterval(() => {
     void protocolService.sweepExpiredStates();
