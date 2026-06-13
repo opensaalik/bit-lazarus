@@ -5,7 +5,7 @@ import { requestBytes, requestJson } from "../lib/api.js";
 import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
 import { useApp } from "../context/AppContext.jsx";
 import { computeSha256Hex } from "../lib/sha256.js";
-import { uploadWalrusBlob } from "../lib/walrus.js";
+import { downloadArchiveResource, uploadWalrusBlob } from "../lib/walrus.js";
 import {
   addTorrent,
   destroyWebTorrentClient,
@@ -116,6 +116,17 @@ function getExpectedTorrentPayloadSize(torrentMetadata) {
   return null;
 }
 
+function getArchiveFilename(bounty, activeContract) {
+  const firstFile = bounty?.torrentMeta?.files?.[0]?.path;
+  return (
+    activeContract?.hunterDeliveryFileName ||
+    firstFile ||
+    bounty?.torrentName ||
+    bounty?.torrentMeta?.name ||
+    "bit-lazarus-archive.bin"
+  );
+}
+
 async function safelyRemoveTorrent(torrent) {
   if (!torrent) {
     return;
@@ -200,6 +211,7 @@ export default function BountyDetailPage() {
   const isActiveHunter = activeContract?.hunterUserId === currentUser?.id;
   const requesterDownloadedFileName = downloadedFileName || activeContract?.hunterDeliveryFileName || "recovered-file.bin";
   const contractResolved = String(activeContract?.state ?? "").startsWith("RESOLVED_");
+  const archiveDownloadAvailable = bounty?.status === "COMPLETED" || activeContract?.state === "RESOLVED_SUCCESS";
   const shouldPoll = Boolean(
     token &&
       bountyId &&
@@ -807,6 +819,18 @@ export default function BountyDetailPage() {
     }
   }, [downloadedFileBlob, downloadedFileUrl, requesterDownloadedFileName]);
 
+  const handleDownloadArchivedFile = useCallback(() => {
+    void runAction(async () => {
+      setStatusMessage("Resolving ENS resource and downloading Walrus archive.");
+      await downloadArchiveResource({
+        token,
+        torrentInfoHash: bounty.torrentInfoHash,
+        filename: getArchiveFilename(bounty, activeContract),
+      });
+      setStatusMessage("Archive download started.");
+    });
+  }, [activeContract, bounty, runAction, setStatusMessage, token]);
+
   const activeHunterLabel = activeHunter?.userId ?? "No hunter selected";
 
   if (!token) {
@@ -1129,6 +1153,26 @@ export default function BountyDetailPage() {
               </div>
             </div>
           ) : null}
+
+          <div className="protocol-subsection">
+            <div className="panel-head">
+              <p className="eyebrow">Archive</p>
+              <h3>Download from ENS/Walrus</h3>
+            </div>
+            <p className="muted-copy">
+              Resolve the torrent infohash resource and save the archived recovered file from Walrus.
+            </p>
+            <div className="button-row">
+              <button
+                className="secondary-button"
+                disabled={actionLoading || !archiveDownloadAvailable}
+                onClick={handleDownloadArchivedFile}
+                type="button"
+              >
+                Download archived file
+              </button>
+            </div>
+          </div>
         </section>
       </section>
     </main>

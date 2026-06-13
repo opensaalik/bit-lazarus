@@ -110,6 +110,9 @@ Backend routes:
 
 - `GET /walrus/config`
 - `PUT /walrus/blobs`
+- `GET /resources/:torrentInfoHash/download`
+
+When a requester uploads a `.torrent` whose infohash already resolves to `walrus.blob`, the app skips new Arc bounty creation and downloads the archived file through the backend proxy.
 
 ## Arc API Routes
 

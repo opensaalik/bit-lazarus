@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { AuthService } from "./auth-service.js";
 import { ARC_TESTNET_CHAIN_ID } from "./arc-escrow-service.js";
@@ -47,6 +48,17 @@ function parseRewardAmountUnits(value) {
   }
 
   return parsed;
+}
+
+function sanitizeDownloadFilename(value, fallback = "bit-lazarus-archive.bin") {
+  const normalized = typeof value === "string" && value.trim() ? value.trim() : fallback;
+  const sanitized = normalized
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, " ")
+    .slice(0, 160)
+    .trim();
+
+  return sanitized || fallback;
 }
 
 function getArcEscrowService(resourceLocatorService) {
@@ -351,13 +363,102 @@ export function createApp({
     response.json({ resource });
   });
 
-  app.get("/resources/:torrentInfoHash/resolve", requireAuth, (request, response) => {
+  app.get("/resources/:torrentInfoHash/resolve", requireAuth, async (request, response, next) => {
     if (!resourceLocatorService) {
       response.status(503).json({ error: "resource locator service is not configured" });
       return;
     }
 
-    response.json({ resolution: resourceLocatorService.resolveResource(request.params.torrentInfoHash) });
+    try {
+      const torrentInfoHash = request.params.torrentInfoHash.trim().toLowerCase();
+      const ensName = resourceLocatorService.deriveName(torrentInfoHash);
+      const walrusBlobId = await resourceLocatorService.getEnsTextRecord({
+        ensName,
+        key: "walrus.blob",
+      });
+
+      if (walrusBlobId) {
+        const retrievalUrl = await resourceLocatorService.getEnsTextRecord({
+          ensName,
+          key: "url",
+        });
+
+        response.json({
+          resolution: {
+            mode: "walrus",
+            ensName,
+            ensNetwork: resourceLocatorService.ensNetwork,
+            walrusBlobId,
+            retrievalUrl: retrievalUrl || resourceLocatorService.getWalrusRetrievalUrl(walrusBlobId),
+          },
+        });
+        return;
+      }
+
+      const resource = resourceLocatorService.getResource(torrentInfoHash);
+      if (resource) {
+        response.json({ resolution: resourceLocatorService.resolveResource(torrentInfoHash) });
+        return;
+      }
+
+      response.json({
+        resolution: {
+          mode: "torrent",
+          ensName,
+          ensNetwork: resourceLocatorService.ensNetwork,
+          activeBountyId: null,
+          resource: null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/resources/:torrentInfoHash/download", requireAuth, async (request, response, next) => {
+    if (!resourceLocatorService) {
+      response.status(503).json({ error: "resource locator service is not configured" });
+      return;
+    }
+
+    try {
+      const torrentInfoHash = request.params.torrentInfoHash.trim().toLowerCase();
+      const ensName = resourceLocatorService.deriveName(torrentInfoHash);
+      const walrusBlobId = await resourceLocatorService.getEnsTextRecord({
+        ensName,
+        key: "walrus.blob",
+      });
+
+      if (!walrusBlobId) {
+        response.status(404).json({ error: "Walrus archive not found for this torrent resource" });
+        return;
+      }
+
+      const walrusResponse = await walrusService.fetchBlob(walrusBlobId);
+      const bounty = bountyService
+        .listBounties({})
+        .find((candidate) => candidate.torrentInfoHash === torrentInfoHash);
+      const filename = sanitizeDownloadFilename(bounty?.torrentMeta?.name ?? bounty?.torrentName);
+
+      response.setHeader("Content-Type", walrusResponse.headers.get("content-type") ?? "application/octet-stream");
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      response.setHeader("X-Bit-Lazarus-ENS-Name", ensName);
+      response.setHeader("X-Bit-Lazarus-Walrus-Blob-Id", walrusBlobId);
+
+      const contentLength = walrusResponse.headers.get("content-length");
+      if (contentLength) {
+        response.setHeader("Content-Length", contentLength);
+      }
+
+      if (!walrusResponse.body) {
+        response.end();
+        return;
+      }
+
+      Readable.fromWeb(walrusResponse.body).pipe(response);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/resources/:torrentInfoHash/archive", requireAuth, async (request, response) => {

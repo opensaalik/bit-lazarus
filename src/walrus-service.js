@@ -116,4 +116,17 @@ export class WalrusService {
       response: responseBody,
     };
   }
+
+  async fetchBlob(blobId) {
+    const response = await this.fetchImpl(this.getRetrievalUrl(blobId), {
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(`Walrus download failed with status ${response.status}: ${responseText}`);
+    }
+
+    return response;
+  }
 }

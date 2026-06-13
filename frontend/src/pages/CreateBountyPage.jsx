@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext.jsx";
+import { downloadArchiveResource } from "../lib/walrus.js";
 
 export default function CreateBountyPage() {
   const navigate = useNavigate();
@@ -24,6 +25,13 @@ export default function CreateBountyPage() {
     await handleCreateBounty(event, {
       onCreated: (bounty) => {
         navigate(`/bounties/${bounty.id}`, { replace: true });
+      },
+      onArchiveHit: async () => {
+        await downloadArchiveResource({
+          token,
+          torrentInfoHash: torrentMeta.infoHash,
+          filename: torrentMeta.name,
+        });
       },
     });
   }

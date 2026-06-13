@@ -71,6 +71,34 @@ test("Walrus service accepts already-certified publisher responses", async () =>
   assert.equal(result.retrievalUrl, "https://aggregator.example/v1/blobs/walrus_blob_existing");
 });
 
+test("Walrus service fetches archived blobs through the aggregator API", async () => {
+  const requests = [];
+  const service = new WalrusService({
+    publisherUrl: "https://publisher.example",
+    aggregatorUrl: "https://aggregator.example",
+    fetchImpl: async (url, init = {}) => {
+      requests.push({
+        url: String(url),
+        method: init.method,
+      });
+
+      return new Response("archived bytes", {
+        status: 200,
+        headers: {
+          "content-type": "application/octet-stream",
+        },
+      });
+    },
+  });
+  const response = await service.fetchBlob("walrus_blob_existing");
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "GET");
+  assert.equal(requests[0].url, "https://aggregator.example/v1/blobs/walrus_blob_existing");
+  assert.equal(response.headers.get("content-type"), "application/octet-stream");
+  assert.equal(await response.text(), "archived bytes");
+});
+
 test("Walrus service factory uses production defaults and configured overrides", () => {
   const service = createWalrusServiceFromEnv({
     WALRUS_PUBLISHER_URL: "https://publisher.example/",

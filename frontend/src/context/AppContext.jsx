@@ -181,7 +181,7 @@ export function AppProvider({ children }) {
     setTorrentBase64(null);
   }
 
-  async function handleCreateBounty(event, { onCreated } = {}) {
+  async function handleCreateBounty(event, { onCreated, onArchiveHit } = {}) {
     event?.preventDefault();
 
     if (!torrentMeta) {
@@ -199,6 +199,20 @@ export function AppProvider({ children }) {
       }
 
       const rewardAmountUnits = Math.round(rewardAmount * 1_000_000);
+      const resourcePayload = await requestJson(`/resources/${torrentMeta.infoHash}/resolve`, {
+        token,
+      });
+
+      if (resourcePayload.resolution?.mode === "walrus") {
+        setStatusMessage(`Archive already exists at ${resourcePayload.resolution.ensName}.`);
+
+        if (typeof onArchiveHit === "function") {
+          await onArchiveHit(resourcePayload.resolution);
+        }
+
+        return null;
+      }
+
       const arcConfig = await getArcConfig();
       const transactionPayload = await requestJson("/arc/transactions/create-bounty", {
         method: "POST",
