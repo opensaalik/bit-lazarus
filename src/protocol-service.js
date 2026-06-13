@@ -96,6 +96,27 @@ export class ProtocolService {
     return contract;
   }
 
+  async deleteStaleDeliveryContracts({ bountyId, requesterUserId }) {
+    assertString(bountyId, "bountyId");
+    assertString(requesterUserId, "requesterUserId");
+
+    const staleContracts = this.listDeliveryContracts({ bountyId })
+      .filter((contract) => (
+        contract.payerUserId === requesterUserId &&
+        contract.state !== "RESOLVED_SUCCESS"
+      ));
+
+    for (const contract of staleContracts) {
+      this.deliveryContracts.delete(contract.id);
+    }
+
+    if (staleContracts.length > 0) {
+      await this.persist();
+    }
+
+    return staleContracts;
+  }
+
   async createDeliveryContract({
     contractId = crypto.randomUUID(),
     bountyId,

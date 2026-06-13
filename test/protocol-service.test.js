@@ -124,6 +124,55 @@ test("protocol service deletes local delivery contracts", async () => {
   });
 });
 
+test("protocol service bulk deletes stale requester delivery contracts", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = new ProtocolService({ dataDir: tempDir });
+    await service.init();
+
+    await service.createDeliveryContract({
+      contractId: "stale-active",
+      bountyId: "bounty-shared",
+      payerUserId: "payer-shared",
+      hunterUserId: "hunter-a",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a1",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b1",
+      rewardEscrowId: "arc-escrow-shared",
+      rewardAmountUnits: 1_000_000,
+    });
+    await service.createDeliveryContract({
+      contractId: "successful",
+      bountyId: "bounty-shared",
+      payerUserId: "payer-shared",
+      hunterUserId: "hunter-b",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a1",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b2",
+      rewardEscrowId: "arc-escrow-shared",
+      rewardAmountUnits: 1_000_000,
+    });
+    await service.resolveContract({ contractId: "successful", outcome: "SUCCESS" });
+    await service.createDeliveryContract({
+      contractId: "other-requester",
+      bountyId: "bounty-shared",
+      payerUserId: "payer-other",
+      hunterUserId: "hunter-c",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a2",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b3",
+      rewardEscrowId: "arc-escrow-shared",
+      rewardAmountUnits: 1_000_000,
+    });
+
+    const deletedContracts = await service.deleteStaleDeliveryContracts({
+      bountyId: "bounty-shared",
+      requesterUserId: "payer-shared",
+    });
+
+    assert.deepEqual(deletedContracts.map((contract) => contract.id), ["stale-active"]);
+    assert.equal(service.getDeliveryContract("stale-active"), null);
+    assert.equal(service.getDeliveryContract("successful").state, "RESOLVED_SUCCESS");
+    assert.equal(service.getDeliveryContract("other-requester").state, "DELIVERY_IN_PROGRESS");
+  });
+});
+
 test("protocol service sweeps expired contracts", async () => {
   await withTempDir(async (tempDir) => {
     let now = "2026-04-11T10:00:00.000Z";

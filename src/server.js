@@ -663,6 +663,46 @@ export function createApp({
     response.status(201).json({ contract });
   });
 
+  app.delete("/bounties/:bountyId/contracts/stale", requireAuth, async (request, response) => {
+    const bounty = bountyService.getBounty(request.params.bountyId);
+
+    if (!bounty) {
+      response.status(404).json({ error: "bounty not found" });
+      return;
+    }
+
+    if (bounty.creatorUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the requester can clear stale delivery contracts" });
+      return;
+    }
+
+    const deletedContracts = await protocolService.deleteStaleDeliveryContracts({
+      bountyId: bounty.id,
+      requesterUserId: request.auth.user.id,
+    });
+    const remainingContracts = protocolService.listDeliveryContracts({ bountyId: bounty.id });
+    const nextProtocolState = getBountyProtocolStateFromContracts(remainingContracts);
+    let updatedBounty = bounty;
+
+    for (const contract of deletedContracts) {
+      updatedBounty = await bountyService.unregisterDeliveryContract({
+        bountyId: bounty.id,
+        contractId: contract.id,
+        ...nextProtocolState,
+      });
+    }
+
+    updatedBounty = await bountyService.updateProtocolState({
+      bountyId: bounty.id,
+      ...nextProtocolState,
+    });
+
+    response.json({
+      contracts: deletedContracts,
+      bounty: updatedBounty,
+    });
+  });
+
   app.get("/contracts/:contractId", requireAuth, (request, response) => {
     const contract = protocolService.getDeliveryContract(request.params.contractId);
 
