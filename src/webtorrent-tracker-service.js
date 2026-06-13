@@ -92,6 +92,45 @@ export class WebTorrentTrackerService {
     };
   }
 
+  getSwarmStats(infoHash) {
+    const normalizedInfoHash = String(infoHash ?? "").trim().toLowerCase();
+
+    if (!/^[0-9a-f]{40}$/.test(normalizedInfoHash)) {
+      throw new Error("infoHash must be a 40-character hex string");
+    }
+
+    const swarm = this.server?.torrents?.[normalizedInfoHash];
+
+    if (!swarm) {
+      return {
+        infoHash: normalizedInfoHash,
+        complete: 0,
+        incomplete: 0,
+        peers: [],
+        peerCount: 0,
+      };
+    }
+
+    const peers = swarm.peers.keys.map((peerId) => {
+      const peer = swarm.peers.peek(peerId);
+
+      return {
+        peerId,
+        type: peer?.type ?? null,
+        complete: Boolean(peer?.complete),
+        socketOpen: Boolean(peer?.socket && !peer.socket.destroyed),
+      };
+    });
+
+    return {
+      infoHash: normalizedInfoHash,
+      complete: swarm.complete,
+      incomplete: swarm.incomplete,
+      peerCount: peers.length,
+      peers,
+    };
+  }
+
   async start() {
     if (this.server) {
       return this;

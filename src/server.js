@@ -181,6 +181,17 @@ export function createApp({
     });
   });
 
+  app.get("/webtorrent/swarms/:torrentInfoHash", requireAuth, (request, response) => {
+    if (!webTorrentTrackerService) {
+      response.status(503).json({ error: "WebTorrent tracker is not configured" });
+      return;
+    }
+
+    response.json({
+      swarm: webTorrentTrackerService.getSwarmStats(request.params.torrentInfoHash),
+    });
+  });
+
   app.put(
     "/walrus/blobs",
     requireAuth,

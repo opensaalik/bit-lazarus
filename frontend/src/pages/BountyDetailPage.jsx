@@ -241,6 +241,7 @@ export default function BountyDetailPage() {
   const [downloadedFileBlob, setDownloadedFileBlob] = useState(null);
   const [downloadedFileUrl, setDownloadedFileUrl] = useState(null);
   const [downloadedFileName, setDownloadedFileName] = useState("");
+  const [trackerSwarm, setTrackerSwarm] = useState(null);
   const hunterSeedTorrentRef = useRef(null);
   const requesterDownloadTorrentRef = useRef(null);
 
@@ -256,7 +257,45 @@ export default function BountyDetailPage() {
     setTorrentMetadata(null);
     setContentBytes(null);
     setContentFileName("");
+    setTrackerSwarm(null);
   }, [bountyId]);
+
+  useEffect(() => {
+    if (!token || !bounty?.torrentInfoHash || !["starting", "seeding", "downloading"].includes(deliverySeedStatus.phase) && !["starting", "downloading"].includes(deliveryDownloadStatus.phase)) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const pollSwarm = async () => {
+      try {
+        const payload = await requestJson(`/webtorrent/swarms/${bounty.torrentInfoHash}`, { token });
+
+        if (!cancelled) {
+          setTrackerSwarm(payload.swarm ?? null);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setTrackerSwarm(null);
+        }
+      }
+    };
+
+    void pollSwarm();
+    const intervalId = window.setInterval(() => {
+      void pollSwarm();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    bounty?.torrentInfoHash,
+    deliveryDownloadStatus.phase,
+    deliverySeedStatus.phase,
+    token,
+  ]);
 
   const bountyHunters = Array.isArray(bounty?.hunters) ? bounty.hunters : [];
   const isCreator = bounty?.creatorUserId === currentUser?.id;
@@ -1209,6 +1248,10 @@ export default function BountyDetailPage() {
                   <strong>{deliverySeedStatus.peers}</strong>
                 </div>
                 <div>
+                  <span>Tracker swarm</span>
+                  <strong>{trackerSwarm?.peerCount ?? 0}</strong>
+                </div>
+                <div>
                   <span>Uploaded</span>
                   <strong>{deliverySeedStatus.uploadedBytes.toLocaleString()} bytes</strong>
                 </div>
@@ -1248,6 +1291,10 @@ export default function BountyDetailPage() {
                 <div>
                   <span>Peers</span>
                   <strong>{deliveryDownloadStatus.peers}</strong>
+                </div>
+                <div>
+                  <span>Tracker swarm</span>
+                  <strong>{trackerSwarm?.peerCount ?? 0}</strong>
                 </div>
                 <div>
                   <span>Progress</span>

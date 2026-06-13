@@ -59,6 +59,21 @@ test("WebTorrent tracker advertises configured ICE servers", () => {
   });
 });
 
+test("WebTorrent tracker reports empty swarm stats", () => {
+  const service = createWebTorrentTrackerServiceFromEnv({
+    HOST: "127.0.0.1",
+    PORT: "3000",
+  });
+
+  assert.deepEqual(service.getSwarmStats("0123456789abcdef0123456789abcdef01234567"), {
+    infoHash: "0123456789abcdef0123456789abcdef01234567",
+    complete: 0,
+    incomplete: 0,
+    peers: [],
+    peerCount: 0,
+  });
+});
+
 test("WebTorrent tracker supports custom public route and port", () => {
   const service = new WebTorrentTrackerService({
     publicHost: "tracker.example",
