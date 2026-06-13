@@ -41,7 +41,7 @@ export async function switchToArc(arcConfig) {
         nativeCurrency: {
           name: "USDC",
           symbol: "USDC",
-          decimals: 18,
+          decimals: 6,
         },
         rpcUrls: [arcConfig.rpcUrl],
         blockExplorerUrls: ["https://testnet.arcscan.app"],

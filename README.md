@@ -92,6 +92,7 @@ Arc Testnet network details:
 - RPC: `https://rpc.testnet.arc.network`
 - Chain ID: `5042002`
 - Explorer: `https://testnet.arcscan.app`
+- Native gas token: `USDC` with `6` decimals
 - USDC ERC-20 interface: `0x3600000000000000000000000000000000000000`
 
 Deploy the USDC escrow contract:
