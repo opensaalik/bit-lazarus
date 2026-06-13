@@ -66,6 +66,13 @@ function getArcEscrowService(resourceLocatorService) {
   return resourceLocatorService.arcEscrowService;
 }
 
+function assignTransactionSender(transaction, walletAddress) {
+  return {
+    ...transaction,
+    from: walletAddress,
+  };
+}
+
 function sortContractsNewestFirst(left, right) {
   const leftTime = new Date(left?.updatedAt ?? left?.createdAt ?? 0).getTime();
   const rightTime = new Date(right?.updatedAt ?? right?.createdAt ?? 0).getTime();
@@ -247,14 +254,28 @@ export function createApp({
         return;
       }
 
+      const hasAllowance = await arcEscrowService.hasSufficientAllowance({
+        ownerAddress: request.auth.user.walletAddress,
+        rewardAmountUnits,
+      });
+      const senderWalletAddress = request.auth.user.walletAddress;
+
       response.json({
-        approvalTransaction: arcEscrowService.buildApprovalTransaction({ rewardAmountUnits }),
-        createBountyTransaction: arcEscrowService.buildCreateBountyTransaction({
-          torrentInfoHash: request.body?.torrentInfoHash,
-          rewardAmountUnits,
-          spec,
-          deadlineAt,
-        }),
+        approvalTransaction: hasAllowance
+          ? null
+          : assignTransactionSender(
+            arcEscrowService.buildApprovalTransaction({ rewardAmountUnits }),
+            senderWalletAddress,
+          ),
+        createBountyTransaction: assignTransactionSender(
+          arcEscrowService.buildCreateBountyTransaction({
+            torrentInfoHash: request.body?.torrentInfoHash,
+            rewardAmountUnits,
+            spec,
+            deadlineAt,
+          }),
+          senderWalletAddress,
+        ),
       });
     } catch (error) {
       next(error);
@@ -264,48 +285,63 @@ export function createApp({
   app.post("/arc/transactions/claim-bounty", requireAuth, (request, response) => {
     const arcEscrowService = getArcEscrowService(resourceLocatorService);
     response.json({
-      transaction: arcEscrowService.buildClaimBountyTransaction({
-        bountyId: request.body?.bountyId,
-      }),
+      transaction: assignTransactionSender(
+        arcEscrowService.buildClaimBountyTransaction({
+          bountyId: request.body?.bountyId,
+        }),
+        request.auth.user.walletAddress,
+      ),
     });
   });
 
   app.post("/arc/transactions/submit-delivery", requireAuth, (request, response) => {
     const arcEscrowService = getArcEscrowService(resourceLocatorService);
     response.json({
-      transaction: arcEscrowService.buildSubmitDeliveryTransaction({
-        bountyId: request.body?.bountyId,
-        deliveryHash: request.body?.deliveryHash,
-        walrusBlobId: request.body?.walrusBlobId ?? "",
-      }),
+      transaction: assignTransactionSender(
+        arcEscrowService.buildSubmitDeliveryTransaction({
+          bountyId: request.body?.bountyId,
+          deliveryHash: request.body?.deliveryHash,
+          walrusBlobId: request.body?.walrusBlobId ?? "",
+        }),
+        request.auth.user.walletAddress,
+      ),
     });
   });
 
   app.post("/arc/transactions/confirm-delivery", requireAuth, (request, response) => {
     const arcEscrowService = getArcEscrowService(resourceLocatorService);
     response.json({
-      transaction: arcEscrowService.buildConfirmDeliveryTransaction({
-        bountyId: request.body?.bountyId,
-        walrusBlobId: request.body?.walrusBlobId,
-      }),
+      transaction: assignTransactionSender(
+        arcEscrowService.buildConfirmDeliveryTransaction({
+          bountyId: request.body?.bountyId,
+          walrusBlobId: request.body?.walrusBlobId,
+        }),
+        request.auth.user.walletAddress,
+      ),
     });
   });
 
   app.post("/arc/transactions/refund-expired", requireAuth, (request, response) => {
     const arcEscrowService = getArcEscrowService(resourceLocatorService);
     response.json({
-      transaction: arcEscrowService.buildRefundExpiredTransaction({
-        bountyId: request.body?.bountyId,
-      }),
+      transaction: assignTransactionSender(
+        arcEscrowService.buildRefundExpiredTransaction({
+          bountyId: request.body?.bountyId,
+        }),
+        request.auth.user.walletAddress,
+      ),
     });
   });
 
   app.post("/arc/transactions/cancel-bounty", requireAuth, (request, response) => {
     const arcEscrowService = getArcEscrowService(resourceLocatorService);
     response.json({
-      transaction: arcEscrowService.buildCancelBountyTransaction({
-        bountyId: request.body?.bountyId,
-      }),
+      transaction: assignTransactionSender(
+        arcEscrowService.buildCancelBountyTransaction({
+          bountyId: request.body?.bountyId,
+        }),
+        request.auth.user.walletAddress,
+      ),
     });
   });
 

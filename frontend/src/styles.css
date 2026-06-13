@@ -849,6 +849,10 @@ a.secondary-button {
   min-width: 0;
 }
 
+.detail-grid-wide {
+  grid-column: 1 / -1;
+}
+
 .detail-grid code,
 .detail-grid strong {
   display: block;

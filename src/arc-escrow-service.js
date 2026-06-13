@@ -148,7 +148,19 @@ export const erc20ApprovalAbi = [
     ],
     outputs: [{ name: "ok", type: "bool" }],
   },
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "remaining", type: "uint256" }],
+  },
 ];
+
+const MAX_UINT256 = (1n << 256n) - 1n;
 
 const ARC_STATUS_BY_INDEX = [
   "NONE",
@@ -313,7 +325,7 @@ export class ArcEscrowService {
   }
 
   buildApprovalTransaction({ rewardAmountUnits }) {
-    const amount = assertPositiveBigInt(rewardAmountUnits, "rewardAmountUnits");
+    assertPositiveBigInt(rewardAmountUnits, "rewardAmountUnits");
 
     return {
       chainId: ARC_TESTNET_CHAIN_ID,
@@ -323,9 +335,27 @@ export class ArcEscrowService {
       data: encodeFunctionData({
         abi: erc20ApprovalAbi,
         functionName: "approve",
-        args: [this.contractAddress, amount],
+        args: [this.contractAddress, MAX_UINT256],
       }),
     };
+  }
+
+  async hasSufficientAllowance({ ownerAddress, rewardAmountUnits }) {
+    assertString(ownerAddress, "ownerAddress");
+
+    if (!isAddress(ownerAddress)) {
+      throw new Error("ownerAddress must be an Ethereum address");
+    }
+
+    const requiredAmount = assertPositiveBigInt(rewardAmountUnits, "rewardAmountUnits");
+    const allowance = await this.publicClient.readContract({
+      address: this.usdcAddress,
+      abi: erc20ApprovalAbi,
+      functionName: "allowance",
+      args: [getAddress(ownerAddress), this.contractAddress],
+    });
+
+    return allowance >= requiredAmount;
   }
 
   buildCreateBountyTransaction({

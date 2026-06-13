@@ -61,7 +61,35 @@ test("Arc escrow service builds USDC approval transactions", () => {
   assert.equal(transaction.value, "0x0");
   assert.equal(transaction.gas, "0x186a0");
   assert.equal(decoded.functionName, "approve");
-  assert.deepEqual(decoded.args, [checksummedContractAddress, 25_000_000n]);
+  assert.equal(decoded.args[0], checksummedContractAddress);
+  assert.equal(decoded.args[1], (1n << 256n) - 1n);
+});
+
+test("Arc escrow service checks USDC allowance before requiring approval", async () => {
+  const service = new ArcEscrowService({
+    contractAddress,
+    usdcAddress,
+    publicClient: {
+      async readContract(call) {
+        assert.equal(call.address, checksummedUsdcAddress);
+        assert.equal(call.functionName, "allowance");
+        assert.deepEqual(call.args, [
+          "0x00000000000000000000000000000000000000AA",
+          checksummedContractAddress,
+        ]);
+        return 30_000_000n;
+      },
+    },
+  });
+
+  assert.equal(await service.hasSufficientAllowance({
+    ownerAddress: "0x00000000000000000000000000000000000000aa",
+    rewardAmountUnits: 25_000_000,
+  }), true);
+  assert.equal(await service.hasSufficientAllowance({
+    ownerAddress: "0x00000000000000000000000000000000000000aa",
+    rewardAmountUnits: 50_000_000,
+  }), false);
 });
 
 test("Arc escrow service builds create bounty transactions", () => {

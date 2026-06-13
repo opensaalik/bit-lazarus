@@ -13,6 +13,7 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
     ? (bounty.rewardAmountUnits / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })
     : null;
   const rewardToken = bounty.rewardToken ?? "USDC";
+  const ensName = bounty.resourceLocator?.ensName ?? null;
 
   return (
     <article className={`bounty-card${compact ? " bounty-card-compact" : ""}`}>
@@ -36,6 +37,12 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
       {bounty.description ? <p className="bounty-description">{bounty.description}</p> : null}
 
       <div className="detail-grid">
+        {ensName ? (
+          <div className="detail-grid-wide">
+            <span>ENS resource</span>
+            <code>{ensName}</code>
+          </div>
+        ) : null}
         <div>
           <span>Info hash</span>
           <code>{bounty.torrentInfoHash}</code>

@@ -239,11 +239,15 @@ export function AppProvider({ children }) {
 
       setStatusMessage("Switching wallet to Arc Testnet.");
 
-      setStatusMessage("Approving USDC for the Arc escrow.");
-      const approvalTxHash = await sendPreparedArcTransaction({
-        arcConfig,
-        transaction: transactionPayload.approvalTransaction,
-      });
+      let approvalTxHash = null;
+
+      if (transactionPayload.approvalTransaction) {
+        setStatusMessage("Approving USDC for the Arc escrow.");
+        approvalTxHash = await sendPreparedArcTransaction({
+          arcConfig,
+          transaction: transactionPayload.approvalTransaction,
+        });
+      }
 
       setStatusMessage("Creating Arc bounty escrow.");
       const createTxHash = await sendPreparedArcTransaction({

@@ -10,6 +10,38 @@ function toQuantity(value) {
   return `0x${Number(value).toString(16)}`;
 }
 
+async function getConnectedAccounts(provider) {
+  return provider.request({ method: "eth_accounts" });
+}
+
+async function getTransactionAccount(provider) {
+  const accounts = await getConnectedAccounts(provider);
+  const connectedAccount = accounts?.[0];
+
+  if (connectedAccount) {
+    return connectedAccount;
+  }
+
+  const requestedAccounts = await provider.request({ method: "eth_requestAccounts" });
+  const requestedAccount = requestedAccounts?.[0];
+
+  if (!requestedAccount) {
+    throw new Error("No wallet account was returned.");
+  }
+
+  return requestedAccount;
+}
+
+function assertWalletMatchesTransaction(account, transaction) {
+  if (!transaction.from) {
+    return;
+  }
+
+  if (String(account).toLowerCase() !== String(transaction.from).toLowerCase()) {
+    throw new Error("Connected wallet does not match the signed-in Bit Lazarus session. Disconnect and sign in with the active Brave wallet.");
+  }
+}
+
 function normalizeQuantity(value) {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -59,6 +91,11 @@ async function normalizeTransaction(provider, transaction) {
 export async function switchToArc(arcConfig) {
   const provider = getProvider();
   const chainId = toQuantity(arcConfig.chainId);
+  const currentChainId = await provider.request({ method: "eth_chainId" });
+
+  if (String(currentChainId).toLowerCase() === chainId.toLowerCase()) {
+    return;
+  }
 
   try {
     await provider.request({
@@ -89,10 +126,11 @@ export async function switchToArc(arcConfig) {
 
 export async function sendWalletTransaction(transaction) {
   const provider = getProvider();
-  const accounts = await provider.request({ method: "eth_requestAccounts" });
+  const account = await getTransactionAccount(provider);
+  assertWalletMatchesTransaction(account, transaction);
   const normalizedTransaction = await normalizeTransaction(provider, {
     ...transaction,
-    from: accounts[0],
+    from: account,
   });
 
   return provider.request({
