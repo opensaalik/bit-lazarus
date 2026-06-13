@@ -13,7 +13,6 @@ import {
   destroyWebTorrentClient,
   loadTorrentData,
   removeTorrent,
-  seedTorrent,
 } from "../lib/webtorrent-client.js";
 import { parseTorrentFile, rewriteTorrentAnnounceUrls } from "../lib/torrent-parser.js";
 
@@ -176,17 +175,6 @@ async function createDeliverySeedTorrent({
   const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
     type: "application/octet-stream",
   });
-  const nativeSeedTorrent = await seedTorrent(seedFile, {
-    announce: trackerAnnounceUrls,
-    name: loadedTorrentMetadata.name,
-    pieceLength: loadedTorrentMetadata.pieceLength,
-  });
-
-  if (String(nativeSeedTorrent.infoHash).toLowerCase() === String(expectedInfoHash).toLowerCase()) {
-    return nativeSeedTorrent;
-  }
-
-  await safelyRemoveTorrent(nativeSeedTorrent);
   const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
   const metadataTorrent = await addTorrent(trackerOnlyTorrentBytes, {
     announce: trackerAnnounceUrls,

@@ -1,6 +1,7 @@
 import express from "express";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
@@ -840,13 +841,15 @@ export async function startServer({
     webTorrentTrackerService,
   });
 
-  const server = await new Promise((resolve) => {
-    const instance = app.listen(port, host, () => resolve(instance));
-  });
+  const server = createServer(app);
 
   if (webTorrentTrackerService) {
     webTorrentTrackerService.attach(server);
   }
+
+  await new Promise((resolve) => {
+    server.listen(port, host, () => resolve(server));
+  });
 
   const protocolSweepTimer = setInterval(() => {
     void protocolService.sweepExpiredStates();
