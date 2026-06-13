@@ -5,6 +5,7 @@ import { requestBytes, requestJson } from "../lib/api.js";
 import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
 import { useApp } from "../context/AppContext.jsx";
 import { computeSha256Hex } from "../lib/sha256.js";
+import { uploadWalrusBlob } from "../lib/walrus.js";
 import {
   addTorrent,
   destroyWebTorrentClient,
@@ -697,7 +698,14 @@ export default function BountyDetailPage() {
             fileSha256,
           }));
 
+          let walrusUpload = null;
           if (fileSha256 === expectedSha256) {
+            setStatusMessage("Uploading verified file to Walrus.");
+            walrusUpload = await uploadWalrusBlob({
+              token,
+              blob: fileBlob,
+            });
+
             const arcConfig = await getArcConfig();
             const arcBounty = await getArcBountyByInfoHash({
               token,
@@ -708,11 +716,11 @@ export default function BountyDetailPage() {
               token,
               body: {
                 bountyId: arcBounty.bountyId,
-                walrusBlobId: "",
+                walrusBlobId: walrusUpload.blobId,
               },
             });
 
-            setStatusMessage("Confirming delivery on Arc.");
+            setStatusMessage("Confirming delivery and Walrus archive on Arc.");
             await sendPreparedArcTransaction({
               arcConfig,
               transaction: transactionPayload.transaction,
@@ -729,6 +737,18 @@ export default function BountyDetailPage() {
             latestContract = (await waitForResolvedContract(contractId)) ?? latestContract;
           }
 
+          if (latestContract.deliveryHashStatus === "MATCHED" && walrusUpload?.blobId) {
+            await requestJson(`/resources/${bounty.torrentInfoHash}/archive`, {
+              method: "POST",
+              token,
+              body: {
+                contractId,
+                walrusBlobId: walrusUpload.blobId,
+                walrusObjectId: walrusUpload.objectId ?? null,
+              },
+            });
+          }
+
           await refreshDetail({ quiet: true });
           setDeliveryDownloadStatus((current) => ({
             ...current,
@@ -738,7 +758,7 @@ export default function BountyDetailPage() {
           }));
           setStatusMessage(
             latestContract.deliveryHashStatus === "MATCHED"
-              ? `Download complete. SHA-256 matched and contract ${latestContract.state}.`
+              ? `Download complete. SHA-256 matched, archived to Walrus, and contract ${latestContract.state}.`
               : "Download complete, but the requester hash did not match the hunter commitment.",
           );
         } catch (error) {

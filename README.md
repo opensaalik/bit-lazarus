@@ -30,6 +30,8 @@ ENS_PARENT_NAME=bitlazarus.eth \
 ENS_NETWORK=sepolia \
 ARC_RPC_URL=https://rpc.testnet.arc.network \
 ARC_ESCROW_CONTRACT_ADDRESS=0x831ad29969e853e668ac3e9db4856a1f48acfd0d \
+WALRUS_PUBLISHER_URL=https://publisher.walrus-testnet.walrus.space \
+WALRUS_AGGREGATOR_URL=https://aggregator.walrus-testnet.walrus.space \
 DATA_DIR=./data/local \
 npm start
 ```
@@ -91,6 +93,23 @@ After deployment, set:
 ```bash
 ARC_ESCROW_CONTRACT_ADDRESS=<deployed-contract-address>
 ```
+
+## Walrus Archive
+
+The app uploads verified recovered files to Walrus before confirming delivery on Arc, then stores the returned blob ID in the Arc escrow contract. ENS wildcard resolution reads the blob ID back from Arc.
+
+Default Testnet endpoints are built in:
+
+```bash
+WALRUS_PUBLISHER_URL=https://publisher.walrus-testnet.walrus.space
+WALRUS_AGGREGATOR_URL=https://aggregator.walrus-testnet.walrus.space
+WALRUS_EPOCHS=5
+```
+
+Backend routes:
+
+- `GET /walrus/config`
+- `PUT /walrus/blobs`
 
 ## Arc API Routes
 

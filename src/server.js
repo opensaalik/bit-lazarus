@@ -8,6 +8,7 @@ import { ARC_TESTNET_CHAIN_ID } from "./arc-escrow-service.js";
 import { BountyService } from "./bounty-service.js";
 import { ProtocolService } from "./protocol-service.js";
 import { createResourceLocatorServiceFromEnv } from "./resource-locator-service.js";
+import { createWalrusServiceFromEnv } from "./walrus-service.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { createWebTorrentTrackerServiceFromEnv } from "./webtorrent-tracker-service.js";
 
@@ -57,8 +58,13 @@ export function createApp({
   bountyService,
   protocolService,
   resourceLocatorService = null,
+  walrusService,
   webTorrentTrackerService = null,
 }) {
+  if (!walrusService) {
+    throw new Error("walrusService is required");
+  }
+
   const app = express();
   const frontendDistPath = path.resolve("dist");
 
@@ -93,6 +99,7 @@ export function createApp({
         enabled: false,
         announceUrls: [],
       },
+      walrus: walrusService.getPublicConfig(),
     });
   });
 
@@ -109,6 +116,36 @@ export function createApp({
       },
     });
   });
+
+  app.get("/walrus/config", (_request, response) => {
+    response.json({
+      walrus: walrusService.getPublicConfig(),
+    });
+  });
+
+  app.put(
+    "/walrus/blobs",
+    requireAuth,
+    express.raw({
+      limit: process.env.WALRUS_UPLOAD_LIMIT ?? "100mb",
+      type: "application/octet-stream",
+    }),
+    async (request, response, next) => {
+      try {
+        const bytes = request.body;
+
+        if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+          response.status(400).json({ error: "request body must be non-empty application/octet-stream bytes" });
+          return;
+        }
+
+        const storedBlob = await walrusService.storeBlob({ bytes });
+        response.status(201).json(storedBlob);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   app.get("/arc/bounties/by-infohash/:torrentInfoHash", requireAuth, async (request, response, next) => {
     try {
@@ -599,6 +636,7 @@ export async function startServer({
     dataDir: path.join(dataDir, "resources"),
   });
   await resourceLocatorService.init();
+  const walrusService = createWalrusServiceFromEnv(process.env);
   const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env);
 
   if (webTorrentTrackerService) {
@@ -610,6 +648,7 @@ export async function startServer({
     bountyService,
     protocolService,
     resourceLocatorService,
+    walrusService,
     webTorrentTrackerService,
   });
 
@@ -638,6 +677,7 @@ export async function startServer({
     authService,
     bountyService,
     protocolService,
+    walrusService,
     webTorrentTrackerService,
     port,
     host,
