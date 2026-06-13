@@ -147,7 +147,7 @@ Use the bundled fixture files:
 
 ## Current Flow
 
-1. Connect with an Ethereum wallet by signing the login challenge.
+1. Connect with Brave Wallet and approve the login signature prompt.
 2. Create a bounty with `fixture-a.torrent` and a USDC reward amount.
 3. Fund/open the bounty through the Arc escrow integration once deployed.
 4. As hunter, open the bounty and click `Hunt bounty`.

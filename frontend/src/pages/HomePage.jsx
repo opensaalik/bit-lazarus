@@ -5,18 +5,12 @@ export default function HomePage() {
   const {
     health,
     statusMessage,
-    walletAddress,
-    setWalletAddress,
     displayName,
     setDisplayName,
-    challenge,
-    signature,
-    setSignature,
     token,
     currentUser,
     loading,
-    handleChallengeRequest,
-    handleVerify,
+    handleWalletLogin,
     openBounties,
     awaitingFunding,
     completedBounties,
@@ -73,15 +67,15 @@ export default function HomePage() {
       <section className="glass-panel stack">
         <div className="panel-head">
           <p className="eyebrow">Login</p>
-          <h2>{token && currentUser ? currentUser.displayName ?? currentUser.walletAddress : "Ethereum wallet challenge"}</h2>
+          <h2>{token && currentUser ? currentUser.displayName ?? currentUser.walletAddress : "Brave Wallet login"}</h2>
         </div>
         <p className="muted-copy">
-          Sign the issued message with the same Ethereum wallet you will use for Arc interactions.
+          Connect with Brave Wallet and sign the issued message with the same account you will use for Arc interactions.
         </p>
 
         {!token ? (
           <div className="stack">
-            <form className="stack" onSubmit={handleChallengeRequest}>
+            <form className="stack" onSubmit={handleWalletLogin}>
               <label className="field">
                 <span>Display name (optional)</span>
                 <input
@@ -90,41 +84,10 @@ export default function HomePage() {
                   value={displayName}
                 />
               </label>
-              <label className="field">
-                <span>Ethereum wallet address</span>
-                <input
-                  onChange={(event) => setWalletAddress(event.target.value)}
-                  placeholder="0x..."
-                  required
-                  value={walletAddress}
-                />
-              </label>
               <button className="primary-button" disabled={loading} type="submit">
-                Issue wallet challenge
+                Connect Brave Wallet
               </button>
             </form>
-
-            {challenge ? (
-              <form className="stack challenge-panel" onSubmit={handleVerify}>
-                <label className="field">
-                  <span>Challenge message</span>
-                  <textarea readOnly rows={6} value={challenge.message} />
-                </label>
-                <label className="field">
-                  <span>Signature</span>
-                  <textarea
-                    onChange={(event) => setSignature(event.target.value)}
-                    placeholder="Paste the wallet signature here"
-                    required
-                    rows={4}
-                    value={signature}
-                  />
-                </label>
-                <button className="primary-button" disabled={loading} type="submit">
-                  Verify wallet
-                </button>
-              </form>
-            ) : null}
           </div>
         ) : (
           <p className="muted-copy">Session active for {currentUser?.walletAddress}.</p>

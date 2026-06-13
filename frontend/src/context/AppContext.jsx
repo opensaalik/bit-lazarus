@@ -10,6 +10,7 @@ import {
 import { formatBytes, parseTorrentFile, torrentToBase64 } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
 import { getArcBountyByInfoHash, getArcConfig, sendPreparedArcTransaction } from "../lib/arc-actions.js";
+import { requestWalletAddress, signWalletMessage } from "../lib/wallet-auth.js";
 
 const AppContext = createContext(null);
 
@@ -26,10 +27,7 @@ export function useApp() {
 export function AppProvider({ children }) {
   const [health, setHealth] = useState(null);
   const [statusMessage, setStatusMessage] = useState("Booting Bit Lazarus...");
-  const [walletAddress, setWalletAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [challenge, setChallenge] = useState(null);
-  const [signature, setSignature] = useState("");
   const [token, setToken] = useState(() => window.localStorage.getItem("bit-lazarus-token") ?? "");
   const [currentUser, setCurrentUser] = useState(null);
   const [bounties, setBounties] = useState([]);
@@ -98,44 +96,36 @@ export function AppProvider({ children }) {
       });
   }, [token]);
 
-  async function handleChallengeRequest(event) {
+  async function handleWalletLogin(event) {
     event.preventDefault();
     setLoading(true);
 
     try {
-      const payload = await requestJson("/auth/challenges", {
+      setStatusMessage("Requesting wallet account.");
+      const walletAddress = await requestWalletAddress();
+      const challengePayload = await requestJson("/auth/challenges", {
         method: "POST",
         body: {
           walletAddress,
         },
       });
-      setChallenge(payload.challenge);
-      setSignature("");
-      setStatusMessage("Challenge issued. Sign it with your Ethereum wallet, then verify the session.");
-    } catch (error) {
-      setStatusMessage(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  async function handleVerify(event) {
-    event.preventDefault();
-    setLoading(true);
+      setStatusMessage("Waiting for wallet signature.");
+      const nextSignature = await signWalletMessage({
+        walletAddress,
+        message: challengePayload.challenge.message,
+      });
 
-    try {
       const payload = await requestJson("/auth/verify", {
         method: "POST",
         body: {
-          challengeId: challenge?.id,
+          challengeId: challengePayload.challenge.id,
           walletAddress,
-          signature,
+          signature: nextSignature,
           displayName,
         },
       });
       setToken(payload.session.token);
-      setChallenge(null);
-      setSignature("");
       setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
     } catch (error) {
       setStatusMessage(error.message);
@@ -379,14 +369,8 @@ export function AppProvider({ children }) {
     health,
     statusMessage,
     setStatusMessage,
-    walletAddress,
-    setWalletAddress,
     displayName,
     setDisplayName,
-    challenge,
-    setChallenge,
-    signature,
-    setSignature,
     token,
     setToken,
     currentUser,
@@ -401,8 +385,7 @@ export function AppProvider({ children }) {
     dragOver,
     setDragOver,
     refreshBounties,
-    handleChallengeRequest,
-    handleVerify,
+    handleWalletLogin,
     handleDrop,
     handleFileSelect,
     clearTorrent,
