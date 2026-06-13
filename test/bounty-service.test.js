@@ -165,3 +165,35 @@ test("bounty service syncs bounty state from Arc escrow state", async () => {
     assert.equal(openBounty.escrowStatus, "FUNDED");
   });
 });
+
+test("bounty service unregisters deleted delivery contracts", async () => {
+  await withTempDir(async (tempDir) => {
+    const service = new BountyService({ dataDir: tempDir });
+    await service.init();
+
+    const bounty = await service.createBounty({
+      bountyId: "bounty-7",
+      creatorUserId: "user-creator",
+      title: "Need cleanup",
+      description: "Clear a stuck local contract",
+      torrentInfoHash: "dddddddddddddddddddddddddddddddddddddddd",
+      rewardAmountUnits: 1_000_000,
+      escrowId: "escrow-bounty-7",
+      escrowStatus: "FUNDED",
+    });
+
+    await service.registerDeliveryContract({
+      bountyId: bounty.id,
+      contractId: "contract-stuck",
+    });
+
+    const cleanedBounty = await service.unregisterDeliveryContract({
+      bountyId: bounty.id,
+      contractId: "contract-stuck",
+    });
+
+    assert.deepEqual(cleanedBounty.activeContractIds, []);
+    assert.equal(cleanedBounty.deliveryStatus, "IDLE");
+    assert.equal(cleanedBounty.completionReadiness, "PENDING");
+  });
+});

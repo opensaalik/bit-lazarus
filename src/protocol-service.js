@@ -87,6 +87,15 @@ export class ProtocolService {
     return this.deliveryContracts.get(contractId) ?? null;
   }
 
+  async deleteDeliveryContract(contractId) {
+    assertString(contractId, "contractId");
+
+    const contract = this.requireDeliveryContract(contractId);
+    this.deliveryContracts.delete(contract.id);
+    await this.persist();
+    return contract;
+  }
+
   async createDeliveryContract({
     contractId = crypto.randomUUID(),
     bountyId,

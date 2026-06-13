@@ -112,6 +112,18 @@ test("torrent-hash delivery contracts keep the contract open on hash mismatch", 
   });
 });
 
+test("protocol service deletes local delivery contracts", async () => {
+  await withTempDir(async (tempDir) => {
+    const { protocolService, contract } = await createReadyContract(tempDir, "8");
+
+    const deletedContract = await protocolService.deleteDeliveryContract(contract.id);
+
+    assert.equal(deletedContract.id, contract.id);
+    assert.equal(protocolService.getDeliveryContract(contract.id), null);
+    assert.equal(protocolService.listDeliveryContracts({ bountyId: contract.bountyId }).length, 0);
+  });
+});
+
 test("protocol service sweeps expired contracts", async () => {
   await withTempDir(async (tempDir) => {
     let now = "2026-04-11T10:00:00.000Z";

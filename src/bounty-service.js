@@ -278,6 +278,29 @@ export class BountyService {
     return bounty;
   }
 
+  async unregisterDeliveryContract({
+    bountyId,
+    contractId,
+    deliveryStatus = "IDLE",
+    completionReadiness = "PENDING",
+  }) {
+    assertString(bountyId, "bountyId");
+    assertString(contractId, "contractId");
+
+    const bounty = this.requireBounty(bountyId);
+    const originalLength = bounty.activeContractIds.length;
+    bounty.activeContractIds = bounty.activeContractIds.filter((id) => id !== contractId);
+
+    if (bounty.activeContractIds.length !== originalLength) {
+      bounty.deliveryStatus = deliveryStatus;
+      bounty.completionReadiness = completionReadiness;
+      bounty.updatedAt = this.now();
+      await this.persist();
+    }
+
+    return bounty;
+  }
+
   async updateProtocolState({ bountyId, deliveryStatus, completionReadiness }) {
     assertString(bountyId, "bountyId");
 

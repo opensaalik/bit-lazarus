@@ -65,6 +65,28 @@ function getArcEscrowService(resourceLocatorService) {
   return resourceLocatorService.arcEscrowService;
 }
 
+function sortContractsNewestFirst(left, right) {
+  const leftTime = new Date(left?.updatedAt ?? left?.createdAt ?? 0).getTime();
+  const rightTime = new Date(right?.updatedAt ?? right?.createdAt ?? 0).getTime();
+
+  if (rightTime !== leftTime) {
+    return rightTime - leftTime;
+  }
+
+  return String(right?.id ?? "").localeCompare(String(left?.id ?? ""));
+}
+
+function getBountyProtocolStateFromContracts(contracts) {
+  const sortedContracts = [...contracts].sort(sortContractsNewestFirst);
+  const activeContract = sortedContracts.find((contract) => !String(contract?.state ?? "").startsWith("RESOLVED_"));
+  const latestContract = activeContract ?? sortedContracts[0] ?? null;
+
+  return {
+    deliveryStatus: latestContract?.state ?? "IDLE",
+    completionReadiness: latestContract?.resolutionReadiness ?? "PENDING",
+  };
+}
+
 export function createApp({
   authService,
   bountyService,
@@ -641,6 +663,39 @@ export function createApp({
     }
 
     response.json({ contract });
+  });
+
+  app.delete("/contracts/:contractId", requireAuth, async (request, response) => {
+    const contract = protocolService.getDeliveryContract(request.params.contractId);
+
+    if (!contract) {
+      response.status(404).json({ error: "delivery contract not found" });
+      return;
+    }
+
+    if (contract.payerUserId !== request.auth.user.id) {
+      response.status(403).json({ error: "only the requester can delete a delivery contract" });
+      return;
+    }
+
+    if (contract.state === "RESOLVED_SUCCESS") {
+      response.status(409).json({ error: "successful delivery contracts cannot be deleted" });
+      return;
+    }
+
+    const deletedContract = await protocolService.deleteDeliveryContract(contract.id);
+    const remainingContracts = protocolService.listDeliveryContracts({ bountyId: deletedContract.bountyId });
+    const nextProtocolState = getBountyProtocolStateFromContracts(remainingContracts);
+    const bounty = await bountyService.unregisterDeliveryContract({
+      bountyId: deletedContract.bountyId,
+      contractId: deletedContract.id,
+      ...nextProtocolState,
+    });
+
+    response.json({
+      contract: deletedContract,
+      bounty,
+    });
   });
 
   app.post("/contracts/:contractId/delivery-commitment", requireAuth, async (request, response) => {
