@@ -1,6 +1,7 @@
 import bencode from "bencode";
 import crypto from "node:crypto";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { BountyService } from "../src/bounty-service.js";
 import { ResourceLocatorService } from "../src/resource-locator-service.js";
 
@@ -229,28 +230,25 @@ function createArcServiceStub() {
   };
 }
 
-async function seedDemoBounties() {
-  const dataDir = requireEnv("DATA_DIR", path.resolve("data"));
-  const parentName = requireEnv("ENS_PARENT_NAME", DEFAULT_PARENT_NAME);
-  const escrowContractAddress = requireEnv("ARC_ESCROW_CONTRACT_ADDRESS", DEFAULT_ARC_ESCROW_CONTRACT_ADDRESS);
-  const walrusGatewayBaseUrl = requireEnv("WALRUS_GATEWAY_BASE_URL", DEFAULT_WALRUS_GATEWAY_BASE_URL);
-  const trackerUrl = requireEnv("WEBTORRENT_TRACKER_URL", DEFAULT_TRACKER_URL);
-  const now = new Date().toISOString();
-  const bountyService = new BountyService({
-    dataDir: path.join(dataDir, "bounties"),
-    now: () => now,
-  });
-  const resourceLocatorService = new ResourceLocatorService({
-    dataDir: path.join(dataDir, "resources"),
-    parentName,
-    walrusGatewayBaseUrl,
-    escrowAddress: escrowContractAddress,
-    arcEscrowService: createArcServiceStub(),
-    now: () => now,
-  });
-  await bountyService.init();
-  await resourceLocatorService.init();
+export async function seedDemoBountiesForServices({
+  bountyService,
+  resourceLocatorService,
+  escrowContractAddress,
+  trackerUrl = DEFAULT_TRACKER_URL,
+  dataDir = null,
+} = {}) {
+  if (!bountyService) {
+    throw new Error("bountyService is required");
+  }
 
+  if (!resourceLocatorService) {
+    throw new Error("resourceLocatorService is required");
+  }
+
+  const currentEscrowContractAddress = escrowContractAddress
+    ?? resourceLocatorService.arcEscrowService?.contractAddress
+    ?? resourceLocatorService.escrowAddress
+    ?? DEFAULT_ARC_ESCROW_CONTRACT_ADDRESS;
   const existingIds = new Set(bountyService.listBounties().map((bounty) => bounty.id));
   const seeded = [];
   const skipped = [];
@@ -297,7 +295,7 @@ async function seedDemoBounties() {
       funding: {
         chain: "arc",
         token: "USDC",
-        escrowContractAddress,
+        escrowContractAddress: currentEscrowContractAddress,
         demo: true,
       },
       torrentFileBase64: torrent.torrentBytes.toString("base64"),
@@ -316,15 +314,52 @@ async function seedDemoBounties() {
     });
   }
 
-  console.log(JSON.stringify({
+  return {
     dataDir,
-    escrowContractAddress,
+    escrowContractAddress: currentEscrowContractAddress,
     seeded,
     skipped,
-  }, null, 2));
+  };
 }
 
-seedDemoBounties().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+export async function seedDemoBountiesFromEnv() {
+  const dataDir = requireEnv("DATA_DIR", path.resolve("data"));
+  const parentName = requireEnv("ENS_PARENT_NAME", DEFAULT_PARENT_NAME);
+  const escrowContractAddress = requireEnv("ARC_ESCROW_CONTRACT_ADDRESS", DEFAULT_ARC_ESCROW_CONTRACT_ADDRESS);
+  const walrusGatewayBaseUrl = requireEnv("WALRUS_GATEWAY_BASE_URL", DEFAULT_WALRUS_GATEWAY_BASE_URL);
+  const trackerUrl = requireEnv("WEBTORRENT_TRACKER_URL", DEFAULT_TRACKER_URL);
+  const now = new Date().toISOString();
+  const bountyService = new BountyService({
+    dataDir: path.join(dataDir, "bounties"),
+    now: () => now,
+  });
+  const resourceLocatorService = new ResourceLocatorService({
+    dataDir: path.join(dataDir, "resources"),
+    parentName,
+    walrusGatewayBaseUrl,
+    escrowAddress: escrowContractAddress,
+    arcEscrowService: createArcServiceStub(),
+    now: () => now,
+  });
+  await bountyService.init();
+  await resourceLocatorService.init();
+
+  return seedDemoBountiesForServices({
+    bountyService,
+    resourceLocatorService,
+    escrowContractAddress,
+    trackerUrl,
+    dataDir,
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  seedDemoBountiesFromEnv()
+    .then((result) => {
+      console.log(JSON.stringify(result, null, 2));
+    })
+    .catch((error) => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
+}

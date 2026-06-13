@@ -13,6 +13,7 @@ import { createResourceLocatorServiceFromEnv } from "./resource-locator-service.
 import { createWalrusServiceFromEnv } from "./walrus-service.js";
 import { createWalletAuthVerifierFromEnv } from "./wallet-auth-verifier.js";
 import { createWebTorrentTrackerServiceFromEnv } from "./webtorrent-tracker-service.js";
+import { seedDemoBountiesForServices } from "../scripts/seed-demo-bounties.js";
 
 function getBearerToken(request) {
   const authorization = request.headers.authorization;
@@ -924,6 +925,15 @@ export async function startServer({
   await protocolService.deleteDeliveryContractsByBountyIds({
     bountyIds: deletedForeignEscrowBounties.map((bounty) => bounty.id),
   });
+  if (process.env.DEMO_SEED_BOUNTIES === "true") {
+    await seedDemoBountiesForServices({
+      bountyService,
+      resourceLocatorService,
+      escrowContractAddress: resourceLocatorService.arcEscrowService.contractAddress,
+      trackerUrl: process.env.WEBTORRENT_TRACKER_URL,
+      dataDir,
+    });
+  }
   const walrusService = createWalrusServiceFromEnv(process.env);
   const webTorrentTrackerService = createWebTorrentTrackerServiceFromEnv(process.env, { host, port });
 

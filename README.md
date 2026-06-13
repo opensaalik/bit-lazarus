@@ -120,6 +120,8 @@ npm run demo:seed-bounties
 ```
 
 The seed is idempotent and writes five open bounties plus five completed Walrus-style archive entries.
+If the server is already running, restart it after running the command; the running process keeps bounty state in memory.
+For Render, you can instead set `DEMO_SEED_BOUNTIES=true` so the same seed runs in-process on startup.
 
 ## Walrus Archive
 
