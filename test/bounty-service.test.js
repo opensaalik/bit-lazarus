@@ -27,11 +27,11 @@ test("bounty service saves torrent bounties", async () => {
       description: "Seed the file for a recovery torrent",
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
       torrentName: "archive.iso.torrent",
-      rewardSats: 25_000,
+      rewardAmountUnits: 25_000_000,
       tags: ["Linux", "Archive"],
       escrowId: "escrow-bounty-1",
       escrowStatus: "AWAITING_FUNDING",
-      funding: { paymentRequest: "lnmocktestnet-example" },
+      funding: { chain: "arc", token: "USDC" },
       resourceLocator: {
         ensName: "btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth",
         locatorStatus: "PENDING_RECOVERY",
@@ -43,7 +43,8 @@ test("bounty service saves torrent bounties", async () => {
     assert.equal(bounty.status, "AWAITING_FUNDING");
     assert.deepEqual(bounty.tags, ["linux", "archive"]);
     assert.equal(bounty.escrowId, "escrow-bounty-1");
-    assert.equal(bounty.bondAmountSats, 7500);
+    assert.equal(bounty.rewardAmountUnits, 25_000_000);
+    assert.equal(bounty.rewardToken, "USDC");
     assert.equal(bounty.resourceLocator.ensName, "btih-0123456789abcdef0123456789abcdef01234567.bitlazarus.eth");
     assert.equal(bounty.torrentMeta.pieceCount, 2048);
   });
@@ -60,7 +61,7 @@ test("bounty service lets hunters join open bounties", async () => {
       title: "Seed a missing TV episode",
       description: "Need a partial reseed",
       torrentInfoHash: "89abcdef0123456789abcdef0123456789abcdef",
-      rewardSats: 5_000,
+      rewardAmountUnits: 5_000_000,
       escrowId: "escrow-bounty-2",
       escrowStatus: "FUNDED",
     });
@@ -86,7 +87,7 @@ test("bounty service prevents creators from joining their own bounties", async (
       title: "Need old dataset pieces",
       description: "Recover a research torrent",
       torrentInfoHash: "fedcba9876543210fedcba9876543210fedcba98",
-      rewardSats: 9_000,
+      rewardAmountUnits: 9_000_000,
       escrowId: "escrow-bounty-3",
       escrowStatus: "FUNDED",
     });
@@ -112,7 +113,7 @@ test("bounty service filters by creator and hunter", async () => {
       title: "Need file for torrent A",
       description: "Recover file for torrent A",
       torrentInfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      rewardSats: 3_000,
+      rewardAmountUnits: 3_000_000,
       escrowId: "escrow-bounty-4",
       escrowStatus: "AWAITING_FUNDING",
     });
@@ -122,7 +123,7 @@ test("bounty service filters by creator and hunter", async () => {
       title: "Need file for torrent B",
       description: "Recover file for torrent B",
       torrentInfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      rewardSats: 4_000,
+      rewardAmountUnits: 4_000_000,
       escrowId: "escrow-bounty-5",
       escrowStatus: "FUNDED",
     });
@@ -137,7 +138,7 @@ test("bounty service filters by creator and hunter", async () => {
   });
 });
 
-test("bounty service syncs bounty state from escrow state", async () => {
+test("bounty service syncs bounty state from Arc escrow state", async () => {
   await withTempDir(async (tempDir) => {
     const service = new BountyService({ dataDir: tempDir });
     await service.init();
@@ -148,7 +149,7 @@ test("bounty service syncs bounty state from escrow state", async () => {
       title: "Need a funded bounty",
       description: "Awaiting escrow funding",
       torrentInfoHash: "cccccccccccccccccccccccccccccccccccccccc",
-      rewardSats: 6_000,
+      rewardAmountUnits: 6_000_000,
       escrowId: "escrow-bounty-6",
       escrowStatus: "AWAITING_FUNDING",
     });
@@ -157,7 +158,7 @@ test("bounty service syncs bounty state from escrow state", async () => {
       bountyId: "bounty-6",
       escrowId: "escrow-bounty-6",
       escrowStatus: "FUNDED",
-      funding: { paymentRequest: "lnmocktestnet-bounty-6" },
+      funding: { chain: "arc", token: "USDC" },
     });
 
     assert.equal(openBounty.status, "OPEN");

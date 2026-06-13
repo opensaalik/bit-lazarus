@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { getAddress } from "viem";
 
 function assertString(value, fieldName) {
   if (!value || typeof value !== "string") {
@@ -10,7 +11,7 @@ function assertString(value, fieldName) {
 
 function normalizeWalletAddress(walletAddress) {
   assertString(walletAddress, "walletAddress");
-  return walletAddress.trim();
+  return getAddress(walletAddress.trim());
 }
 
 function normalizeOptionalString(value) {
@@ -80,11 +81,11 @@ export class AuthService {
     const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
     const challenge = {
       id,
-      kind: "bitcoin",
+      kind: "ethereum",
       walletAddress: normalizedWalletAddress,
       nonce: nonceBytes,
       message: [
-        "Bit Lazarus wallet login",
+        "Bit Lazarus Ethereum wallet login",
         `Wallet: ${normalizedWalletAddress}`,
         `Nonce: ${crypto.randomBytes(16).toString("hex")}`,
         `Issued At: ${now.toISOString()}`,
@@ -133,7 +134,7 @@ export class AuthService {
     const user = await this.findOrCreateUser({
       walletAddress: normalizedWalletAddress,
       displayName,
-      walletType: "bitcoin",
+      walletType: verification.walletType ?? "ethereum",
     });
     const session = {
       token: crypto.randomBytes(32).toString("hex"),
@@ -219,7 +220,7 @@ export class AuthService {
     return user;
   }
 
-  async findOrCreateUser({ walletAddress, displayName = null, walletType = "bitcoin" }) {
+  async findOrCreateUser({ walletAddress, displayName = null, walletType = "ethereum" }) {
     const existingUserId = this.userIdsByWalletAddress.get(walletAddress);
 
     if (existingUserId) {

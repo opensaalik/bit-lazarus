@@ -21,8 +21,8 @@ function normalizeOptionalString(value, fieldName) {
   return trimmed === "" ? null : trimmed;
 }
 
-function assertPositiveInteger(value, fieldName) {
-  if (!Number.isInteger(value) || value <= 0) {
+function assertPositiveSafeInteger(value, fieldName) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${fieldName} must be a positive integer`);
   }
 }
@@ -64,7 +64,8 @@ function normalizeTorrentInfoHash(infoHash) {
   return normalized;
 }
 
-const BOUNTY_STATUSES_BY_ESCROW_STATUS = {
+const BOUNTY_STATUSES_BY_SETTLEMENT_STATUS = {
+  PENDING: "AWAITING_FUNDING",
   AWAITING_FUNDING: "AWAITING_FUNDING",
   FUNDED: "OPEN",
   RELEASED: "COMPLETED",
@@ -75,13 +76,11 @@ export class BountyService {
   constructor({
     dataDir = path.resolve("data", "bounties"),
     now = () => new Date().toISOString(),
-    bondPercentage = 30,
   } = {}) {
     this.dataDir = dataDir;
     this.statePath = path.join(this.dataDir, "bounties.json");
     this.torrentsDir = path.join(this.dataDir, "torrents");
     this.now = now;
-    this.bondPercentage = bondPercentage;
     this.bounties = new Map();
   }
 
@@ -140,10 +139,6 @@ export class BountyService {
     }
   }
 
-  computeBondAmount(rewardSats) {
-    return Math.max(1, Math.ceil(rewardSats * this.bondPercentage / 100));
-  }
-
   async createBounty({
     bountyId = crypto.randomUUID(),
     creatorUserId,
@@ -151,10 +146,11 @@ export class BountyService {
     description,
     torrentInfoHash,
     torrentName = null,
-    rewardSats,
+    rewardAmountUnits,
+    rewardToken = "USDC",
     tags = [],
-    escrowId,
-    escrowStatus = "AWAITING_FUNDING",
+    escrowId = null,
+    escrowStatus = "PENDING",
     funding = null,
     torrentFileBase64 = null,
     pieceCount = null,
@@ -166,8 +162,8 @@ export class BountyService {
     assertString(creatorUserId, "creatorUserId");
     assertString(title, "title");
     assertString(description, "description");
-    assertPositiveInteger(rewardSats, "rewardSats");
-    assertString(escrowId, "escrowId");
+    assertPositiveSafeInteger(rewardAmountUnits, "rewardAmountUnits");
+    assertString(rewardToken, "rewardToken");
 
     if (this.bounties.has(bountyId)) {
       throw new Error(`bounty already exists: ${bountyId}`);
@@ -179,7 +175,7 @@ export class BountyService {
       await this.storeTorrentFile(normalizedInfoHash, torrentFileBase64);
     }
 
-    const bondAmountSats = this.computeBondAmount(rewardSats);
+    const normalizedEscrowStatus = escrowStatus.trim().toUpperCase();
     const timestamp = this.now();
     const bounty = {
       id: bountyId,
@@ -188,16 +184,16 @@ export class BountyService {
       description: description.trim(),
       torrentInfoHash: normalizedInfoHash,
       torrentName: normalizeOptionalString(torrentName, "torrentName"),
-      rewardSats,
-      bondAmountSats,
+      rewardAmountUnits,
+      rewardToken: rewardToken.trim().toUpperCase(),
       tags: normalizeTags(tags),
-      status: BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? "AWAITING_FUNDING",
+      status: BOUNTY_STATUSES_BY_SETTLEMENT_STATUS[normalizedEscrowStatus] ?? "AWAITING_FUNDING",
       deliveryStatus: "IDLE",
       completionReadiness: "PENDING",
       createdAt: timestamp,
       updatedAt: timestamp,
-      escrowId,
-      escrowStatus,
+      escrowId: normalizeOptionalString(escrowId, "escrowId"),
+      escrowStatus: normalizedEscrowStatus,
       funding,
       hasTorrentFile: !!torrentFileBase64,
       resourceLocator,
@@ -248,17 +244,18 @@ export class BountyService {
 
   async syncBountyEscrow({ bountyId, escrowId, escrowStatus, funding }) {
     assertString(bountyId, "bountyId");
-    assertString(escrowId, "escrowId");
     assertString(escrowStatus, "escrowStatus");
 
     const bounty = this.requireBounty(bountyId);
+    const normalizedEscrowId = normalizeOptionalString(escrowId, "escrowId");
 
-    if (bounty.escrowId !== escrowId) {
+    if (bounty.escrowId && normalizedEscrowId && bounty.escrowId !== normalizedEscrowId) {
       throw new Error("escrowId does not match bounty");
     }
 
-    bounty.escrowStatus = escrowStatus;
-    bounty.status = BOUNTY_STATUSES_BY_ESCROW_STATUS[escrowStatus] ?? bounty.status;
+    bounty.escrowId = normalizedEscrowId ?? bounty.escrowId;
+    bounty.escrowStatus = escrowStatus.trim().toUpperCase();
+    bounty.status = BOUNTY_STATUSES_BY_SETTLEMENT_STATUS[bounty.escrowStatus] ?? bounty.status;
     bounty.funding = funding ?? bounty.funding;
     bounty.updatedAt = this.now();
     await this.persist();
@@ -273,7 +270,7 @@ export class BountyService {
 
     if (!bounty.activeContractIds.includes(contractId)) {
       bounty.activeContractIds.push(contractId);
-      bounty.deliveryStatus = "BOND_PENDING";
+      bounty.deliveryStatus = "DELIVERY_IN_PROGRESS";
       bounty.updatedAt = this.now();
       await this.persist();
     }

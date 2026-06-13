@@ -242,7 +242,8 @@ export class ResourceLocatorService {
     bountyId,
     title = null,
     description = null,
-    rewardSats = null,
+    rewardAmountUnits = null,
+    rewardToken = "USDC",
   }) {
     const normalizedInfoHash = normalizeTorrentInfoHash(torrentInfoHash);
     assertString(bountyId, "bountyId");
@@ -255,7 +256,8 @@ export class ResourceLocatorService {
       }
       existing.title = existing.title ?? normalizeOptionalString(title, "title");
       existing.description = existing.description ?? normalizeOptionalString(description, "description");
-      existing.rewardSats = existing.rewardSats ?? rewardSats ?? null;
+      existing.rewardAmountUnits = existing.rewardAmountUnits ?? rewardAmountUnits ?? null;
+      existing.rewardToken = existing.rewardToken ?? rewardToken;
       existing.updatedAt = this.now();
       await this.persist();
       return { resource: existing, created: false };
@@ -276,7 +278,8 @@ export class ResourceLocatorService {
       retrievalUrl: null,
       title: normalizeOptionalString(title, "title"),
       description: normalizeOptionalString(description, "description"),
-      rewardSats: rewardSats ?? null,
+      rewardAmountUnits: rewardAmountUnits ?? null,
+      rewardToken,
       archivedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,

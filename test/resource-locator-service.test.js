@@ -70,7 +70,7 @@ test("resource locator derives one wildcard ENS name per unique torrent", async 
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
       bountyId: "bounty-1",
       title: "Lost distro ISO",
-      rewardSats: 5000,
+      rewardAmountUnits: 5_000_000,
     });
     const second = await service.ensureResourceForBounty({
       torrentInfoHash: "0123456789abcdef0123456789abcdef01234567",
@@ -83,7 +83,8 @@ test("resource locator derives one wildcard ENS name per unique torrent", async 
     assert.equal(second.resource.ensName, first.resource.ensName);
     assert.deepEqual(second.resource.bountyIds, ["bounty-1", "bounty-2"]);
     assert.equal(second.resource.title, "Lost distro ISO");
-    assert.equal(second.resource.rewardSats, 5000);
+    assert.equal(second.resource.rewardAmountUnits, 5_000_000);
+    assert.equal(second.resource.rewardToken, "USDC");
   });
 });
 

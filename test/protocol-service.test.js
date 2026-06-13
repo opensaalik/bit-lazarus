@@ -4,8 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { ProtocolService } from "../src/protocol-service.js";
-import { EscrowService } from "../src/escrow-service.js";
-import { MockLightningClient } from "../src/lightning-client.js";
 
 async function withTempDir(run) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "bit-lazarus-protocol-"));
@@ -17,74 +15,31 @@ async function withTempDir(run) {
   }
 }
 
-async function setupProtocolWithEscrow(tempDir, options = {}) {
-  const lightningClient = new MockLightningClient();
-  const escrowService = new EscrowService({
-    dataDir: path.join(tempDir, "escrow"),
-    lightningClient,
-  });
-  await escrowService.init();
-
+async function createReadyContract(tempDir, suffix, options = {}) {
   const protocolService = new ProtocolService({
-    dataDir: path.join(tempDir, "protocol"),
-    escrowService,
+    dataDir: tempDir,
     ...options,
   });
   await protocolService.init();
-
-  return { lightningClient, escrowService, protocolService };
-}
-
-async function createReadyContract(tempDir, suffix, options = {}) {
-  const { lightningClient, escrowService, protocolService } = await setupProtocolWithEscrow(tempDir, options);
-
-  const rewardEscrow = await escrowService.createEscrow({
-    escrowId: `reward-${suffix}`,
-    buyerId: `payer-${suffix}`,
-    sellerId: `bounty:bounty-${suffix}`,
-    amountSats: 25_000,
-  });
 
   const contract = await protocolService.createDeliveryContract({
     contractId: `contract-${suffix}`,
     bountyId: `bounty-${suffix}`,
     payerUserId: `payer-${suffix}`,
     hunterUserId: `hunter-${suffix}`,
-    payerWalletAddress: `payer-wallet-${suffix}`,
-    hunterWalletAddress: `hunter-wallet-${suffix}`,
-    rewardEscrowId: rewardEscrow.id,
+    payerWalletAddress: `0x00000000000000000000000000000000000000a${suffix}`,
+    hunterWalletAddress: `0x00000000000000000000000000000000000000b${suffix}`,
+    rewardEscrowId: `arc-escrow-${suffix}`,
+    rewardAmountUnits: 25_000_000,
   });
-
-  const { payerBondEscrow, hunterBondEscrow } = await protocolService.createBondEscrows({
-    contractId: contract.id,
-    bondAmountSats: 2500,
-  });
-
-  const hunterPayoutInvoice = await lightningClient.createInvoice({
-    amountSats: 25_000,
-    memo: `hunter payout ${suffix}`,
-  });
-  await protocolService.registerContractPayoutInvoice({
-    contractId: contract.id,
-    userId: `hunter-${suffix}`,
-    paymentRequest: hunterPayoutInvoice.paymentRequest,
-  });
-
-  await lightningClient.acceptHoldInvoice({ paymentHashHex: rewardEscrow.funding.paymentHashHex });
-  await lightningClient.acceptHoldInvoice({ paymentHashHex: payerBondEscrow.funding.paymentHashHex });
-  await lightningClient.acceptHoldInvoice({ paymentHashHex: hunterBondEscrow.funding.paymentHashHex });
-  await protocolService.syncBondStatus({ contractId: contract.id });
 
   return {
-    lightningClient,
-    escrowService,
     protocolService,
-    rewardEscrow,
-    contract: protocolService.getDeliveryContract(contract.id),
+    contract,
   };
 }
 
-test("protocol service creates delivery contracts directly from a bounty", async () => {
+test("protocol service creates delivery contracts directly from a funded Arc bounty", async () => {
   await withTempDir(async (tempDir) => {
     const service = new ProtocolService({ dataDir: tempDir });
     await service.init();
@@ -94,41 +49,17 @@ test("protocol service creates delivery contracts directly from a bounty", async
       bountyId: "bounty-1",
       payerUserId: "payer-1",
       hunterUserId: "hunter-1",
-      payerWalletAddress: "payer-wallet-1",
-      hunterWalletAddress: "hunter-wallet-1",
-      rewardEscrowId: "reward-1",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a1",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b1",
+      rewardEscrowId: "arc-escrow-1",
+      rewardAmountUnits: 25_000_000,
     });
 
-    assert.equal(contract.state, "BOND_PENDING");
+    assert.equal(contract.state, "DELIVERY_IN_PROGRESS");
     assert.equal(contract.payerUserId, "payer-1");
     assert.equal(contract.hunterUserId, "hunter-1");
+    assert.equal(contract.rewardToken, "USDC");
     assert.equal(contract.deliveryHashStatus, "PENDING");
-  });
-});
-
-test("protocol service rejects manual bond status overrides", async () => {
-  await withTempDir(async (tempDir) => {
-    const service = new ProtocolService({ dataDir: tempDir });
-    await service.init();
-
-    await service.createDeliveryContract({
-      contractId: "contract-2",
-      bountyId: "bounty-2",
-      payerUserId: "payer-2",
-      hunterUserId: "hunter-2",
-      payerWalletAddress: "payer-wallet-2",
-      hunterWalletAddress: "hunter-wallet-2",
-      rewardEscrowId: "reward-2",
-    });
-
-    await assert.rejects(
-      service.updateContractBondEscrows({
-        contractId: "contract-2",
-        payerUserId: "payer-2",
-        payerBondStatus: "FUNDED",
-      }),
-      /can no longer be set manually/,
-    );
   });
 });
 
@@ -187,7 +118,7 @@ test("protocol service sweeps expired contracts", async () => {
     const service = new ProtocolService({
       dataDir: tempDir,
       now: () => now,
-      bondDeadlineMs: 1000,
+      deliveryDeadlineMs: 1000,
     });
     await service.init();
 
@@ -196,14 +127,15 @@ test("protocol service sweeps expired contracts", async () => {
       bountyId: "bounty-7",
       payerUserId: "payer-7",
       hunterUserId: "hunter-7",
-      payerWalletAddress: "payer-wallet-7",
-      hunterWalletAddress: "hunter-wallet-7",
-      rewardEscrowId: "reward-7",
+      payerWalletAddress: "0x00000000000000000000000000000000000000a7",
+      hunterWalletAddress: "0x00000000000000000000000000000000000000b7",
+      rewardEscrowId: "arc-escrow-7",
+      rewardAmountUnits: 1_000_000,
     });
 
     now = "2026-04-11T10:00:03.000Z";
     await service.sweepExpiredStates();
 
-    assert.equal(service.getDeliveryContract("contract-7").state, "EXPIRED");
+    assert.equal(service.getDeliveryContract("contract-7").state, "RESOLVED_EXPIRED");
   });
 });

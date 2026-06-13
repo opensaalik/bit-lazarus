@@ -1,14 +1,13 @@
 {
   "name": "bit-lazarus",
   "version": "0.1.0",
-  "description": "Torrent recovery bounty demo backed by Polar, LND, and WebTorrent.",
+  "description": "Torrent recovery bounty demo backed by ENS, Arc, Walrus, and WebTorrent.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "ccip:gateway": "node src/ccip-gateway-server.js",
     "test": "node --test",
-    "auth:token": "node scripts/complete-auth-challenge.js",
     "ens:deploy-resolver": "node scripts/deploy-wildcard-resolver.js",
     "frontend:dev": "vite",
     "frontend:build": "vite build",
@@ -16,7 +15,6 @@
   },
   "dependencies": {
     "bencode": "^4.0.0",
-    "bip322-js": "^3.0.0",
     "express": "^5.1.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
