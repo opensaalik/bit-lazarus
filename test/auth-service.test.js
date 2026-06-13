@@ -44,10 +44,45 @@ test("auth service issues Ethereum wallet challenges and creates a user session"
     assert.equal(result.user.walletAddress, "0x00000000000000000000000000000000000000AA");
     assert.equal(result.user.walletType, "ethereum");
     assert.equal(result.user.displayName, "Alice");
+    assert.match(result.user.ensLabel, /^[a-z]{6}$/);
+    assert.equal(result.user.ensName, `${result.user.ensLabel}.bitlazarus.eth`);
     assert.ok(result.session.token);
 
     const auth = await authService.authenticateSession(result.session.token);
     assert.equal(auth.user.id, result.user.id);
+  });
+});
+
+test("auth service reuses wallet ENS names across sessions", async () => {
+  await withTempDir(async (tempDir) => {
+    let labelIndex = 0;
+    const labels = ["bafiru", "cedopa"];
+    const authService = new AuthService({
+      dataDir: tempDir,
+      verifier: new MockWalletAuthVerifier(),
+      ensLabelGenerator: () => labels[labelIndex++],
+    });
+    await authService.init();
+
+    const firstChallenge = await authService.issueChallenge({
+      walletAddress: "0x00000000000000000000000000000000000000aa",
+    });
+    const first = await authService.verifyChallenge({
+      challengeId: firstChallenge.id,
+      walletAddress: firstChallenge.walletAddress,
+      signature: `mock-signature:${firstChallenge.walletAddress}:${firstChallenge.message}`,
+    });
+    const secondChallenge = await authService.issueChallenge({
+      walletAddress: "0x00000000000000000000000000000000000000aa",
+    });
+    const second = await authService.verifyChallenge({
+      challengeId: secondChallenge.id,
+      walletAddress: secondChallenge.walletAddress,
+      signature: `mock-signature:${secondChallenge.walletAddress}:${secondChallenge.message}`,
+    });
+
+    assert.equal(first.user.ensName, "bafiru.bitlazarus.eth");
+    assert.equal(second.user.ensName, "bafiru.bitlazarus.eth");
   });
 });
 

@@ -2,6 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { getAddress } from "viem";
+import { normalize } from "viem/ens";
+
+const DEFAULT_ENS_PARENT_NAME = "bitlazarus.eth";
+const WORD_CONSONANTS = "bcdfghjklmnpqrstvwxyz";
+const WORD_VOWELS = "aeiou";
 
 function assertString(value, fieldName) {
   if (!value || typeof value !== "string") {
@@ -12,6 +17,34 @@ function assertString(value, fieldName) {
 function normalizeWalletAddress(walletAddress) {
   assertString(walletAddress, "walletAddress");
   return getAddress(walletAddress.trim());
+}
+
+function normalizeEnsParentName(parentName) {
+  assertString(parentName, "ENS_PARENT_NAME");
+  return normalize(parentName.trim());
+}
+
+function normalizeEnsLabel(label) {
+  assertString(label, "ensLabel");
+  const normalized = label.trim().toLowerCase();
+
+  if (!/^[a-z]{6}$/.test(normalized)) {
+    throw new Error("ensLabel must be a six-letter lowercase word");
+  }
+
+  return normalized;
+}
+
+function createRandomWordLabel() {
+  const bytes = crypto.randomBytes(6);
+  let label = "";
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    const alphabet = index % 2 === 0 ? WORD_CONSONANTS : WORD_VOWELS;
+    label += alphabet[bytes[index] % alphabet.length];
+  }
+
+  return label;
 }
 
 function normalizeOptionalString(value) {
@@ -34,6 +67,8 @@ export class AuthService {
     verifier,
     challengeTtlMs = 5 * 60 * 1000,
     sessionTtlMs = 7 * 24 * 60 * 60 * 1000,
+    ensParentName = DEFAULT_ENS_PARENT_NAME,
+    ensLabelGenerator = createRandomWordLabel,
   } = {}) {
     if (!verifier) {
       throw new Error("verifier is required");
@@ -45,8 +80,11 @@ export class AuthService {
     this.verifier = verifier;
     this.challengeTtlMs = challengeTtlMs;
     this.sessionTtlMs = sessionTtlMs;
+    this.ensParentName = normalizeEnsParentName(ensParentName);
+    this.ensLabelGenerator = ensLabelGenerator;
     this.users = new Map();
     this.userIdsByWalletAddress = new Map();
+    this.userIdsByEnsLabel = new Map();
     this.challenges = new Map();
     this.sessions = new Map();
   }
@@ -62,8 +100,16 @@ export class AuthService {
       this.userIdsByWalletAddress = new Map(
         [...this.users.values()].map((user) => [user.walletAddress, user.id]),
       );
+      let changed = false;
+      this.userIdsByEnsLabel = new Map();
+      for (const user of this.users.values()) {
+        changed = this.ensureUserEnsName(user) || changed;
+      }
       this.challenges = new Map((state.challenges ?? []).map((challenge) => [challenge.id, challenge]));
       this.sessions = new Map((state.sessions ?? []).map((session) => [session.token, session]));
+      if (changed) {
+        await this.persist();
+      }
     } catch (error) {
       if (error.code !== "ENOENT") {
         throw error;
@@ -198,6 +244,24 @@ export class AuthService {
     return this.users.get(userId) ?? null;
   }
 
+  getUserByEnsLabel(label) {
+    const normalizedLabel = normalizeEnsLabel(label);
+    const userId = this.userIdsByEnsLabel.get(normalizedLabel);
+    return userId ? this.getUser(userId) : null;
+  }
+
+  getUserByEnsName(ensName) {
+    assertString(ensName, "ensName");
+    const normalizedName = normalize(ensName.trim());
+    const suffix = `.${this.ensParentName}`;
+
+    if (!normalizedName.endsWith(suffix)) {
+      return null;
+    }
+
+    return this.getUserByEnsLabel(normalizedName.slice(0, -suffix.length));
+  }
+
   async updateUserProfile(userId, { displayName, bio } = {}) {
     assertString(userId, "userId");
 
@@ -225,10 +289,16 @@ export class AuthService {
 
     if (existingUserId) {
       const user = this.users.get(existingUserId);
+      const hadEnsName = this.ensureUserEnsName(user);
 
       if (displayName && user.displayName !== displayName) {
         user.displayName = displayName;
         user.updatedAt = this.now().toISOString();
+        await this.persist();
+        return user;
+      }
+
+      if (hadEnsName) {
         await this.persist();
       }
 
@@ -242,14 +312,48 @@ export class AuthService {
       displayName: normalizeOptionalString(displayName),
       bio: null,
       walletType,
+      ensLabel: null,
+      ensName: null,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
+    this.ensureUserEnsName(user);
 
     this.users.set(user.id, user);
     this.userIdsByWalletAddress.set(walletAddress, user.id);
     await this.persist();
     return user;
+  }
+
+  ensureUserEnsName(user) {
+    if (user.ensLabel && user.ensName) {
+      const label = normalizeEnsLabel(user.ensLabel);
+      const ensName = normalize(`${label}.${this.ensParentName}`);
+      const changed = user.ensLabel !== label || user.ensName !== ensName;
+      user.ensLabel = label;
+      user.ensName = ensName;
+      this.userIdsByEnsLabel.set(label, user.id);
+      return changed;
+    }
+
+    const label = this.createUniqueEnsLabel();
+    user.ensLabel = label;
+    user.ensName = normalize(`${label}.${this.ensParentName}`);
+    user.updatedAt = this.now().toISOString();
+    this.userIdsByEnsLabel.set(label, user.id);
+    return true;
+  }
+
+  createUniqueEnsLabel() {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const label = normalizeEnsLabel(this.ensLabelGenerator());
+
+      if (!this.userIdsByEnsLabel.has(label)) {
+        return label;
+      }
+    }
+
+    throw new Error("unable to allocate wallet ENS label");
   }
 
   async persist() {

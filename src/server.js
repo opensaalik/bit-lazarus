@@ -902,6 +902,7 @@ export async function startServer({
   const authService = new AuthService({
     dataDir: path.join(dataDir, "auth"),
     verifier: authVerifier,
+    ensParentName: process.env.ENS_PARENT_NAME,
   });
   await authService.init();
   const bountyService = new BountyService({
@@ -914,6 +915,7 @@ export async function startServer({
   await protocolService.init();
   const resourceLocatorService = createResourceLocatorServiceFromEnv(process.env, {
     dataDir: path.join(dataDir, "resources"),
+    authService,
   });
   await resourceLocatorService.init();
   const walrusService = createWalrusServiceFromEnv(process.env);

@@ -20,6 +20,7 @@ const RESOURCE_URL_TEXT_KEY = "url";
 const DESCRIPTION_TEXT_KEY = "description";
 const AVATAR_TEXT_KEY = "avatar";
 const REWARD_TEXT_KEY = "reward";
+const WALLET_ADDRESS_TEXT_KEY = "address";
 const DEFAULT_ENS_NETWORK = "sepolia";
 const DEFAULT_WALRUS_GATEWAY_BASE_URL = "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
@@ -134,6 +135,19 @@ function parseInfoHashFromEnsName(ensName, parentName) {
   return match?.[1] ?? null;
 }
 
+function parseWalletLabelFromEnsName(ensName, parentName) {
+  const normalizedName = normalize(ensName);
+  const normalizedParent = normalizeParentName(parentName);
+  const suffix = `.${normalizedParent}`;
+
+  if (!normalizedName.endsWith(suffix)) {
+    return null;
+  }
+
+  const label = normalizedName.slice(0, -suffix.length);
+  return /^[a-z]{6}$/.test(label) ? label : null;
+}
+
 function decodeCcipReadPayload(data) {
   if (!isHex(data)) {
     throw new Error("CCIP calldata must be hex");
@@ -206,6 +220,7 @@ export class ResourceLocatorService {
     escrowAddress = null,
     avatarUrl = null,
     arcEscrowService = null,
+    authService = null,
     now = () => new Date().toISOString(),
   } = {}) {
     this.parentName = normalizeParentName(parentName);
@@ -219,6 +234,7 @@ export class ResourceLocatorService {
       throw new Error("arcEscrowService is required");
     }
     this.arcEscrowService = arcEscrowService;
+    this.authService = authService;
     this.now = now;
     this.resources = new Map();
   }
@@ -428,6 +444,20 @@ export class ResourceLocatorService {
 
   async getEnsTextRecord({ ensName, key }) {
     assertString(key, "key");
+    const wallet = this.getWalletForEnsName(ensName);
+    if (wallet) {
+      switch (key) {
+        case WALLET_ADDRESS_TEXT_KEY:
+          return wallet.walletAddress;
+        case DESCRIPTION_TEXT_KEY:
+          return `Bit Lazarus wallet ${wallet.ensName}`;
+        case AVATAR_TEXT_KEY:
+          return this.avatarUrl ?? "";
+        default:
+          return "";
+      }
+    }
+
     const infoHash = parseInfoHashFromEnsName(ensName, this.parentName);
 
     if (!infoHash) {
@@ -478,7 +508,7 @@ export class ResourceLocatorService {
 
     if (decoded.functionName === "addr") {
       return {
-        data: encodeResolverAddress(this.escrowAddress),
+        data: encodeResolverAddress(this.getEnsAddressRecord(ensName)),
       };
     }
 
@@ -487,6 +517,20 @@ export class ResourceLocatorService {
 
   getWalrusRetrievalUrl(walrusBlobId) {
     return `${this.walrusGatewayBaseUrl}/${encodeURIComponent(walrusBlobId)}`;
+  }
+
+  getWalletForEnsName(ensName) {
+    const label = parseWalletLabelFromEnsName(ensName, this.parentName);
+
+    if (!label || !this.authService) {
+      return null;
+    }
+
+    return this.authService.getUserByEnsLabel(label);
+  }
+
+  getEnsAddressRecord(ensName) {
+    return this.getWalletForEnsName(ensName)?.walletAddress ?? this.escrowAddress;
   }
 
   requireResource(torrentInfoHash) {

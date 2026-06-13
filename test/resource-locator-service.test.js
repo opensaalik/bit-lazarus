@@ -292,6 +292,46 @@ test("resource locator answers addr lookups with the Arc escrow contract address
   });
 });
 
+test("resource locator answers wildcard wallet names from persisted auth users", async () => {
+  await withTempDir(async (tempDir) => {
+    const walletAddress = "0x00000000000000000000000000000000000000AA";
+    const service = createService(tempDir, {
+      arcEscrowService: createArcService(),
+      authService: {
+        getUserByEnsLabel(label) {
+          if (label !== "bafiru") {
+            return null;
+          }
+
+          return {
+            ensName: "bafiru.bitlazarus.eth",
+            walletAddress,
+          };
+        },
+      },
+    });
+    await service.init();
+
+    const ensName = "bafiru.bitlazarus.eth";
+    const addressResponse = await service.answerCcipRead({
+      data: encodeResolveCall(ensName, encodeTextCall(ensName, "address")),
+    });
+    const addrResponse = await service.answerCcipRead({
+      data: encodeResolveCall(
+        ensName,
+        encodeFunctionData({
+          abi: resolverReadAbi,
+          functionName: "addr",
+          args: [namehash(ensName)],
+        }),
+      ),
+    });
+
+    assert.equal(decodeStringResponse(addressResponse.data), walletAddress);
+    assert.equal(decodeAddressResponse(addrResponse.data), getAddress(walletAddress));
+  });
+});
+
 test("resource locator returns empty Arc-backed records for unknown wildcard names", async () => {
   await withTempDir(async (tempDir) => {
     const service = createService(tempDir, {

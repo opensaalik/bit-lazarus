@@ -80,9 +80,9 @@ export default function HomePage() {
         <section className="glass-panel stack">
           <div className="panel-head">
             <p className="eyebrow">Connected</p>
-            <h2>{currentUser?.displayName ?? "Wallet linked"}</h2>
+            <h2>{currentUser?.ensName ?? currentUser?.displayName ?? "Wallet linked"}</h2>
           </div>
-          <p className="muted-copy">Signed in as {currentUser?.walletAddress}. Jump into the marketplace.</p>
+          <p className="muted-copy">Signed in as {currentUser?.ensName ?? currentUser?.walletAddress}. Jump into the marketplace.</p>
         </section>
       )}
 

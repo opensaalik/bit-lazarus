@@ -82,7 +82,7 @@ export function AppProvider({ children }) {
       .then((payload) => {
         startTransition(() => {
           setCurrentUser(payload.user);
-          setStatusMessage(`Session active for ${payload.user.walletAddress}`);
+          setStatusMessage(`Session active for ${payload.user.ensName ?? payload.user.walletAddress}`);
         });
       })
       .catch((error) => {
@@ -131,7 +131,7 @@ export function AppProvider({ children }) {
         },
       });
       setToken(payload.session.token);
-      setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
+      setStatusMessage(`Connected as ${payload.user.ensName ?? payload.user.displayName ?? payload.user.walletAddress}`);
     } catch (error) {
       setStatusMessage(error.message);
     } finally {

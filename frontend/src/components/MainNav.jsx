@@ -6,6 +6,10 @@ function shortenAddr(addr) {
   return `${addr.slice(0, 10)}…${addr.slice(-6)}`;
 }
 
+function getUserLabel(user) {
+  return user.ensName ?? user.displayName ?? shortenAddr(user.walletAddress);
+}
+
 export default function MainNav() {
   const { currentUser, token, handleLogout, loading } = useApp();
 
@@ -39,7 +43,7 @@ export default function MainNav() {
         {token && currentUser ? (
           <>
             <span className="nav-wallet-chip" title={currentUser.walletAddress}>
-              {currentUser.displayName ?? shortenAddr(currentUser.walletAddress)}
+              {getUserLabel(currentUser)}
             </span>
             <button className="secondary-button nav-logout" disabled={loading} onClick={handleLogout} type="button">
               Disconnect
