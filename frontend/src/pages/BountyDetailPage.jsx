@@ -212,6 +212,10 @@ export default function BountyDetailPage() {
   const requesterDownloadedFileName = downloadedFileName || activeContract?.hunterDeliveryFileName || "recovered-file.bin";
   const contractResolved = String(activeContract?.state ?? "").startsWith("RESOLVED_");
   const archiveDownloadAvailable = bounty?.status === "COMPLETED" || activeContract?.state === "RESOLVED_SUCCESS";
+  const hunterDeliveryCommitted = Boolean(activeContract?.hunterDeliveryFileSha256);
+  const hunterSeedActive =
+    ["starting", "seeding"].includes(deliverySeedStatus.phase) &&
+    String(deliverySeedStatus.infoHash ?? "").toLowerCase() === String(bounty?.torrentInfoHash ?? "").toLowerCase();
   const shouldPoll = Boolean(
     token &&
       bountyId &&
@@ -504,36 +508,48 @@ export default function BountyDetailPage() {
       }
 
       const fileSha256 = await computeSha256Hex(contentBytes);
-      const arcConfig = await getArcConfig();
-      const arcBounty = await getArcBountyByInfoHash({
-        token,
-        torrentInfoHash: bounty.torrentInfoHash,
-      });
-      const transactionPayload = await requestJson("/arc/transactions/submit-delivery", {
-        method: "POST",
-        token,
-        body: {
-          bountyId: arcBounty.bountyId,
-          deliveryHash: fileSha256,
-          walrusBlobId: "",
-        },
-      });
+      const committedHash = activeContract.hunterDeliveryFileSha256?.toLowerCase() ?? null;
 
-      setStatusMessage("Submitting delivery hash to Arc.");
-      await sendPreparedArcTransaction({
-        arcConfig,
-        transaction: transactionPayload.transaction,
-      });
+      if (committedHash && committedHash !== fileSha256) {
+        throw new Error("The selected file does not match the delivery hash already committed for this contract.");
+      }
 
-      await requestJson(`/contracts/${activeContract.id}/delivery-commitment`, {
-        method: "POST",
-        token,
-        body: {
-          fileSha256,
-          fileName: contentFileName || loadedTorrentMetadata.name,
-          fileSize: contentBytes.byteLength,
-        },
-      });
+      if (!committedHash) {
+        const arcConfig = await getArcConfig();
+        const arcBounty = await getArcBountyByInfoHash({
+          token,
+          torrentInfoHash: bounty.torrentInfoHash,
+        });
+        const arcDeliveryHash = String(arcBounty.deliveryHash ?? "").replace(/^0x/, "").toLowerCase();
+
+        if (arcDeliveryHash !== fileSha256) {
+          const transactionPayload = await requestJson("/arc/transactions/submit-delivery", {
+            method: "POST",
+            token,
+            body: {
+              bountyId: arcBounty.bountyId,
+              deliveryHash: fileSha256,
+              walrusBlobId: "",
+            },
+          });
+
+          setStatusMessage("Submitting delivery hash to Arc.");
+          await sendPreparedArcTransaction({
+            arcConfig,
+            transaction: transactionPayload.transaction,
+          });
+        }
+
+        await requestJson(`/contracts/${activeContract.id}/delivery-commitment`, {
+          method: "POST",
+          token,
+          body: {
+            fileSha256,
+            fileName: contentFileName || loadedTorrentMetadata.name,
+            fileSize: contentBytes.byteLength,
+          },
+        });
+      }
 
       if (hunterSeedTorrentRef.current) {
         await safelyRemoveTorrent(hunterSeedTorrentRef.current);
@@ -591,7 +607,11 @@ export default function BountyDetailPage() {
 
       updateSeedStatus();
       await refreshDetail({ quiet: true });
-      setStatusMessage("Committed the hunter file hash and started seeding over WebTorrent.");
+      setStatusMessage(
+        committedHash
+          ? "Restarted seeding over WebTorrent using the existing committed hash."
+          : "Committed the hunter file hash and started seeding over WebTorrent.",
+      );
     });
   }, [
     activeContract,
@@ -599,6 +619,8 @@ export default function BountyDetailPage() {
     canUseWebTorrentTransfer,
     contentBytes,
     contentFileName,
+    deliverySeedStatus.infoHash,
+    deliverySeedStatus.phase,
     ensureTorrentMetadataLoaded,
     refreshDetail,
     runAction,
@@ -1059,7 +1081,7 @@ export default function BountyDetailPage() {
                 <h3>Seed the recovered file</h3>
               </div>
               <p className="muted-copy">
-                Load the recovered file, commit its SHA-256 to the backend, then seed it over WebTorrent to the requester.
+                Load the recovered file, commit its SHA-256 once, then keep it seeding over WebTorrent to the requester.
               </p>
               <label className="field">
                 <span>Recovered content file</span>
@@ -1083,11 +1105,15 @@ export default function BountyDetailPage() {
               <div className="button-row">
                 <button
                   className="primary-button"
-                  disabled={actionLoading || !contentBytes || !canUseWebTorrentTransfer}
+                  disabled={actionLoading || hunterSeedActive || !contentBytes || !canUseWebTorrentTransfer}
                   onClick={handleCommitDeliveryHashAndSeed}
                   type="button"
                 >
-                  Commit hash and start seeding
+                  {hunterSeedActive
+                    ? "Seeding recovered file"
+                    : hunterDeliveryCommitted
+                      ? "Restart seeding"
+                      : "Commit hash and start seeding"}
                 </button>
               </div>
             </div>
