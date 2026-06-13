@@ -41,3 +41,16 @@ test("frontend torrent parser rewrites announce URLs without changing the infoha
   assert.equal(rewrittenParsed.infoHash, originalParsed.infoHash);
   assert.deepEqual(rewrittenParsed.trackers, ["wss://bit-lazarus.onrender.com/tracker"]);
 });
+
+test("frontend torrent parser reads the peer connectivity fixture", async () => {
+  const fixturePath = path.resolve("manual-test", "torrents", "fixture-c.torrent");
+  const bytes = new Uint8Array(await readFile(fixturePath));
+  const parsed = await parseTorrentFile(bytes);
+
+  assert.equal(parsed.infoHash, "e9fa041d8a826eee140aa58dc115b40979ef2d4e");
+  assert.equal(parsed.name, "fixture-c.bin");
+  assert.equal(parsed.pieceLength, 16384);
+  assert.equal(parsed.pieceCount, 12);
+  assert.equal(parsed.totalSize, 196608);
+  assert.deepEqual(parsed.trackers, ["wss://bit-lazarus.onrender.com/tracker"]);
+});
