@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "ccip:gateway": "node src/ccip-gateway-server.js",
     "test": "node --test",
+    "arc:deploy-escrow": "node scripts/deploy-arc-escrow.js",
     "ens:deploy-resolver": "node scripts/deploy-wildcard-resolver.js",
     "frontend:dev": "vite",
     "frontend:build": "vite build",

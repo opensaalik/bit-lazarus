@@ -64,6 +64,30 @@ ENS_PRIVATE_KEY=<bitlazarus.eth-owner-private-key> \
 npm run ens:deploy-resolver
 ```
 
+## Deploy The Arc Escrow
+
+Arc Testnet network details:
+
+- RPC: `https://rpc.testnet.arc.network`
+- Chain ID: `5042002`
+- Explorer: `https://testnet.arcscan.app`
+- USDC ERC-20 interface: `0x3600000000000000000000000000000000000000`
+
+Deploy the USDC escrow contract:
+
+```bash
+ARC_PRIVATE_KEY=<arc-funded-deployer-private-key> \
+ARC_RPC_URL=https://rpc.testnet.arc.network \
+ARC_USDC_ADDRESS=0x3600000000000000000000000000000000000000 \
+npm run arc:deploy-escrow
+```
+
+After deployment, set:
+
+```bash
+ARC_ESCROW_CONTRACT_ADDRESS=<deployed-contract-address>
+```
+
 ## Run The Frontend
 
 In a second terminal:
