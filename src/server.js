@@ -87,6 +87,29 @@ function getBountyProtocolStateFromContracts(contracts) {
   };
 }
 
+const API_ROUTE_PREFIXES = [
+  "/arc",
+  "/auth",
+  "/bounties",
+  "/contracts",
+  "/health",
+  "/resources",
+  "/users",
+  "/walrus",
+];
+
+function isFrontendRoute(request) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return false;
+  }
+
+  if (!request.accepts("html")) {
+    return false;
+  }
+
+  return !API_ROUTE_PREFIXES.some((prefix) => request.path === prefix || request.path.startsWith(`${prefix}/`));
+}
+
 export function createApp({
   authService,
   bountyService,
@@ -745,8 +768,18 @@ export function createApp({
   });
 
   if (existsSync(frontendDistPath)) {
-    app.use("/app", express.static(frontendDistPath));
-    app.get(/^\/app(?:\/.*)?$/, (_request, response) => {
+    app.get(/^\/app(?:\/(.*))?$/, (request, response) => {
+      const nextPath = request.params[0] ? `/${request.params[0]}` : "/";
+      response.redirect(308, nextPath);
+    });
+
+    app.use(express.static(frontendDistPath));
+    app.get(/^\/.*$/, (request, response, next) => {
+      if (!isFrontendRoute(request)) {
+        next();
+        return;
+      }
+
       response.sendFile(path.join(frontendDistPath, "index.html"));
     });
   }
