@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppProvider } from "./context/AppContext.jsx";
 import MainLayout from "./components/MainLayout.jsx";
 import HomePage from "./pages/HomePage.jsx";
+import InfoPage from "./pages/InfoPage.jsx";
 import MarketplacePage from "./pages/MarketplacePage.jsx";
 import CreateBountyPage from "./pages/CreateBountyPage.jsx";
 import BountyDetailPage from "./pages/BountyDetailPage.jsx";
@@ -13,6 +14,7 @@ export default function App() {
         <Routes>
             <Route path="/" element={<MainLayout />}>
               <Route index element={<HomePage />} />
+              <Route path="info" element={<InfoPage />} />
               <Route path="marketplace" element={<MarketplacePage />} />
               <Route path="bounties/new" element={<CreateBountyPage />} />
               <Route path="bounties/:bountyId" element={<BountyDetailPage />} />
