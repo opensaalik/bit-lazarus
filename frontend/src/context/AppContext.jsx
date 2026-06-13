@@ -9,6 +9,7 @@ import {
 } from "react";
 import { formatBytes, parseTorrentFile, torrentToBase64 } from "../lib/torrent-parser.js";
 import { requestJson } from "../lib/api.js";
+import { sendWalletTransaction, switchToArc, waitForWalletTransaction } from "../lib/arc-wallet.js";
 
 const AppContext = createContext(null);
 
@@ -198,6 +199,27 @@ export function AppProvider({ children }) {
       }
 
       const rewardAmountUnits = Math.round(rewardAmount * 1_000_000);
+      const arcConfigPayload = await requestJson("/arc/config");
+      const transactionPayload = await requestJson("/arc/transactions/create-bounty", {
+        method: "POST",
+        token,
+        body: {
+          torrentInfoHash: torrentMeta.infoHash,
+          rewardAmountUnits,
+          spec: bountyDescription || `Bounty for ${torrentMeta.name}`,
+        },
+      });
+
+      setStatusMessage("Switching wallet to Arc Testnet.");
+      await switchToArc(arcConfigPayload.arc);
+
+      setStatusMessage("Approving USDC for the Arc escrow.");
+      const approvalTxHash = await sendWalletTransaction(transactionPayload.approvalTransaction);
+      await waitForWalletTransaction(approvalTxHash);
+
+      setStatusMessage("Creating Arc bounty escrow.");
+      const createTxHash = await sendWalletTransaction(transactionPayload.createBountyTransaction);
+      await waitForWalletTransaction(createTxHash);
 
       const payload = await requestJson("/bounties", {
         method: "POST",
@@ -209,6 +231,14 @@ export function AppProvider({ children }) {
           torrentName: torrentMeta.name,
           rewardAmountUnits,
           rewardToken: "USDC",
+          escrowId: createTxHash,
+          escrowStatus: "FUNDED",
+          funding: {
+            chain: "arc",
+            approvalTxHash,
+            createTxHash,
+            escrowContractAddress: arcConfigPayload.arc.escrowContractAddress,
+          },
           tags: ["arc"],
           torrentFileBase64: torrentBase64,
           pieceCount: torrentMeta.pieceCount || undefined,
@@ -221,7 +251,7 @@ export function AppProvider({ children }) {
       const bounty = payload.bounty;
       setBounties((currentBounties) => [bounty, ...currentBounties]);
 
-      setStatusMessage(`Bounty "${bounty.title}" created. Arc funding integration is next.`);
+      setStatusMessage(`Bounty "${bounty.title}" created on Arc.`);
 
       setTorrentMeta(null);
       setTorrentBase64(null);
