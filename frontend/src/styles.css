@@ -1,49 +1,53 @@
 /* ============================================================================
-   Bit Lazarus — "Necromantic Almanac"
-   A midnight-graveyard grimoire crossed with a terminal. Ghostly serif display,
-   a clean grotesk body, and monospace for the data/infohash layer. Ember-orange
-   (resurrection glow) leads, soul-purple (the occult) supports, on layered void.
+   Bit Lazarus — recovery terminal
+   A crisp, high-contrast dark interface. Solid surfaces with real borders (no
+   muddy translucency), a single confident ember accent, an editorial display
+   face (Bricolage Grotesque), and monospace for every piece of live data.
    ============================================================================ */
 
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
 :root {
-  /* Palette ---------------------------------------------------------------- */
-  --void: #06060d;
-  --void-2: #0a0913;
-  --crypt: #100d1d;
-  --crypt-2: #161226;
-  --slab: #14101f;
-  --slab-edge: rgba(196, 168, 255, 0.1);
-  --hairline: rgba(244, 155, 29, 0.42);
+  /* Surfaces --------------------------------------------------------------- */
+  --bg: #09090d;
+  --bg-2: #0c0c12;
+  --surface: #131319;
+  --surface-2: #191921;
+  --surface-3: #20202a;
+  --line: #272730;
+  --line-2: #383843;
 
-  --ember: #f49b1d;
-  --ember-hot: #ffb347;
-  --ember-deep: #c77c14;
-  --soul: #8b74d6;
-  --soul-deep: #6a59b8;
-  --risen: #74e0b0;
-  --ash: #8a8499;
+  /* Ink -------------------------------------------------------------------- */
+  --ink: #f4f2ec;
+  --ink-dim: #b0aeba;
+  --ink-mute: #76747f;
 
-  --bone: #f5eee2;
-  --bone-dim: #c8c2d6;
-  --bone-mute: #948da8;
+  /* Accent + semantics ----------------------------------------------------- */
+  --accent: #ff7a1a;
+  --accent-bright: #ff9a42;
+  --accent-deep: #e1620a;
+  --on-accent: #1c0d02;
+  --good: #3ad29a;
+  --wait: #f5b73d;
+  --dead: #f0675a;
+  --work: #9b8cf5;
 
   /* Type ------------------------------------------------------------------- */
-  --font-display: "Instrument Serif", Georgia, serif;
+  --font-display: "Bricolage Grotesque", "Segoe UI", sans-serif;
   --font-body: "Hanken Grotesk", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   /* Shape ------------------------------------------------------------------ */
-  --r-lg: 22px;
-  --r-md: 16px;
-  --r-sm: 11px;
+  --r-lg: 18px;
+  --r-md: 13px;
+  --r-sm: 9px;
   --r-pill: 999px;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 
   color-scheme: dark;
   font-family: var(--font-body);
-  color: var(--bone);
-  background: var(--void);
+  color: var(--ink);
+  background: var(--bg);
 }
 
 * {
@@ -59,15 +63,15 @@ body {
   min-height: 100vh;
   position: relative;
   background:
-    radial-gradient(900px 480px at 16% -8%, rgba(244, 155, 29, 0.16), transparent 60%),
-    radial-gradient(820px 520px at 88% 4%, rgba(139, 116, 214, 0.18), transparent 62%),
-    radial-gradient(1200px 700px at 50% 120%, rgba(106, 89, 184, 0.12), transparent 70%),
-    linear-gradient(180deg, #0a0814 0%, #07060f 46%, #050409 100%);
+    radial-gradient(720px 380px at 84% -6%, rgba(255, 122, 26, 0.1), transparent 60%),
+    radial-gradient(640px 420px at 8% 0%, rgba(155, 140, 245, 0.07), transparent 60%),
+    var(--bg);
   background-attachment: fixed;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Starfield + grain woven into the void. */
+/* Faint engineering grid for atmosphere; surfaces sit crisply on top. */
 body::before {
   content: "";
   position: fixed;
@@ -75,36 +79,11 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(1.4px 1.4px at 12% 18%, rgba(255, 215, 164, 0.9), transparent),
-    radial-gradient(1.2px 1.2px at 28% 9%, rgba(237, 230, 255, 0.7), transparent),
-    radial-gradient(1.1px 1.1px at 47% 22%, rgba(255, 255, 255, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 64% 7%, rgba(255, 215, 164, 0.8), transparent),
-    radial-gradient(1.2px 1.2px at 81% 16%, rgba(237, 230, 255, 0.7), transparent),
-    radial-gradient(1px 1px at 92% 27%, rgba(255, 255, 255, 0.5), transparent),
-    radial-gradient(1.1px 1.1px at 36% 34%, rgba(255, 255, 255, 0.4), transparent),
-    radial-gradient(1.3px 1.3px at 73% 31%, rgba(255, 215, 164, 0.6), transparent);
-  opacity: 0.7;
-}
-
-/* A faint graveyard horizon anchoring the bottom of the page. */
-body::after {
-  content: "";
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 220px;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(50% 90% at 8% 100%, rgba(8, 6, 16, 0.95) 40%, transparent 72%),
-    radial-gradient(36% 78% at 20% 100%, rgba(8, 6, 16, 0.95) 42%, transparent 72%),
-    radial-gradient(60% 96% at 38% 100%, rgba(8, 6, 16, 0.95) 44%, transparent 70%),
-    radial-gradient(44% 84% at 58% 100%, rgba(8, 6, 16, 0.95) 42%, transparent 72%),
-    radial-gradient(70% 100% at 80% 100%, rgba(8, 6, 16, 0.95) 46%, transparent 70%),
-    linear-gradient(180deg, transparent, rgba(6, 5, 12, 0.9) 88%);
-  -webkit-mask-image: linear-gradient(180deg, transparent, #000 60%);
-  mask-image: linear-gradient(180deg, transparent, #000 60%);
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 52px 52px;
+  -webkit-mask-image: radial-gradient(circle at 50% 12%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 12%, #000 0%, transparent 78%);
 }
 
 button,
@@ -118,14 +97,12 @@ button {
   cursor: pointer;
 }
 
-code,
-textarea,
-input::placeholder {
+code {
   font-family: var(--font-mono);
 }
 
 ::selection {
-  background: rgba(244, 155, 29, 0.32);
+  background: rgba(255, 122, 26, 0.3);
   color: #fff;
 }
 
@@ -136,64 +113,46 @@ input::placeholder {
   position: relative;
   z-index: 1;
   min-height: 100vh;
-  padding: 22px clamp(16px, 4vw, 40px) 96px;
+  padding: 18px clamp(16px, 4vw, 36px) 80px;
 }
 
 .layout-stack {
   position: relative;
   z-index: 1;
-  max-width: 1180px;
+  max-width: 1160px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .page-main {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
 }
 
-/* These legacy hooks are flattened — the new layout owns the grid. */
 .hero-scene,
 .hero-scene-fallback {
   display: none;
 }
 
 /* ---------------------------------------------------------------------------
-   Slab panels (the "crypt" surface)
+   Panels
    ------------------------------------------------------------------------- */
 .glass-panel {
   position: relative;
-  border: 1px solid var(--slab-edge);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background:
-    linear-gradient(180deg, rgba(26, 20, 42, 0.72), rgba(13, 10, 22, 0.82));
-  box-shadow:
-    0 26px 60px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(14px);
-  overflow: hidden;
-}
-
-/* Engraved ember hairline across the top edge of every slab. */
-.glass-panel::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 18px;
-  right: 18px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--hairline) 30%, var(--hairline) 70%, transparent);
-  opacity: 0.85;
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .command-column > .glass-panel,
 .dashboard-grid > .glass-panel,
 .protocol-grid > .glass-panel,
 .page-main > .glass-panel {
-  padding: 30px;
+  padding: clamp(22px, 3vw, 32px);
 }
 
 .stack {
@@ -215,11 +174,14 @@ input::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 20px;
+  padding: 10px 12px 10px 16px;
   border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: rgba(14, 14, 20, 0.86);
+  backdrop-filter: blur(12px);
   position: sticky;
-  top: 14px;
-  z-index: 20;
+  top: 12px;
+  z-index: 30;
 }
 
 .main-nav-brand {
@@ -231,14 +193,12 @@ input::placeholder {
   display: inline-flex;
   align-items: center;
   text-decoration: none;
-  max-width: min(100%, 270px);
-  filter: drop-shadow(0 4px 18px rgba(244, 155, 29, 0.22));
-  transition: filter 200ms ease, transform 200ms ease;
+  max-width: min(100%, 230px);
+  transition: opacity 160ms ease;
 }
 
 .main-nav-logo:hover {
-  filter: drop-shadow(0 6px 22px rgba(244, 155, 29, 0.4));
-  transform: translateY(-1px);
+  opacity: 0.85;
 }
 
 .main-nav-logo-image {
@@ -251,34 +211,32 @@ input::placeholder {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 5px;
+  gap: 2px;
+  padding: 4px;
   border-radius: var(--r-pill);
-  background: rgba(8, 6, 16, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
 }
 
 .nav-link {
-  position: relative;
-  padding: 9px 16px;
+  padding: 8px 16px;
   border-radius: var(--r-pill);
-  color: var(--bone-dim);
+  color: var(--ink-dim);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  transition: color 160ms ease, background 160ms ease;
+  transition: color 150ms ease, background 150ms ease;
 }
 
 .nav-link:hover {
-  color: var(--bone);
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  background: var(--surface-2);
 }
 
-.nav-link-active {
-  color: #1a0f06;
-  background: linear-gradient(135deg, var(--ember-hot), var(--ember-deep));
-  box-shadow: 0 6px 18px rgba(244, 155, 29, 0.35);
+.nav-link-active,
+.nav-link-active:hover {
+  color: var(--on-accent);
+  background: var(--accent);
 }
 
 .main-nav-session {
@@ -290,13 +248,13 @@ input::placeholder {
 
 .nav-wallet-chip {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
-  padding: 9px 14px;
+  font-size: 0.78rem;
+  padding: 8px 13px;
   border-radius: var(--r-pill);
-  border: 1px solid rgba(139, 116, 214, 0.4);
-  background: rgba(139, 116, 214, 0.1);
-  color: #c3b6f0;
-  max-width: 220px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -308,21 +266,22 @@ input::placeholder {
 }
 
 .nav-guest {
-  font-size: 0.85rem;
-  color: var(--bone-mute);
+  font-size: 0.82rem;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
 }
 
 /* ---------------------------------------------------------------------------
-   Status ribbon (the séance read-out)
+   Status ribbon (live read-out)
    ------------------------------------------------------------------------- */
 .status-ribbon {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px 18px;
+  gap: 11px;
+  padding: 11px 16px;
   border-radius: var(--r-md);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(10, 8, 20, 0.6);
+  border: 1px solid var(--line);
+  background: var(--bg-2);
 }
 
 .layout-status {
@@ -332,398 +291,142 @@ input::placeholder {
 .status-ribbon p {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 0.84rem;
-  color: var(--bone-dim);
-  line-height: 1.5;
+  font-size: 0.82rem;
+  color: var(--ink-dim);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--r-pill);
   flex-shrink: 0;
-  background: var(--ember);
-  box-shadow: 0 0 14px rgba(244, 155, 29, 0.9);
-  animation: pulse 2.4s ease-in-out infinite;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.14);
+  animation: pulse 2.6s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.82); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* ---------------------------------------------------------------------------
-   Typographic primitives
+   Typography primitives
    ------------------------------------------------------------------------- */
 .eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  margin: 0 0 14px;
-  color: var(--ember);
+  margin: 0 0 16px;
+  color: var(--accent-bright);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.34em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .eyebrow::before {
-  content: "✦";
-  font-family: var(--font-body);
-  font-size: 0.72rem;
-  color: var(--soul);
-  letter-spacing: 0;
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: var(--accent);
 }
 
 .panel-head h1,
 .panel-head h2,
 .panel-head h3 {
   font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.02;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
   margin: 0;
+  color: var(--ink);
 }
 
 .panel-head h2 {
-  font-size: clamp(2rem, 3.6vw, 2.9rem);
+  font-size: clamp(1.9rem, 3.4vw, 2.7rem);
 }
 
 .panel-head h3 {
-  font-size: 1.7rem;
+  font-size: 1.55rem;
+  letter-spacing: -0.02em;
 }
 
 .muted-copy,
 .bounty-description {
   margin: 0;
-  color: var(--bone-dim);
-  line-height: 1.7;
+  color: var(--ink-dim);
+  line-height: 1.65;
   font-size: 1rem;
 }
 
 /* ---------------------------------------------------------------------------
-   Hero (Home)
+   Home / hero
    ------------------------------------------------------------------------- */
-.landing-page {
-  display: grid;
-  gap: 28px;
-  min-height: calc(100vh - 190px);
-}
-
-.landing-hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
-  gap: clamp(28px, 6vw, 72px);
-  align-items: center;
-  min-height: min(720px, calc(100vh - 210px));
-  padding: clamp(34px, 6vw, 80px) 0 clamp(24px, 5vw, 56px);
-  overflow: hidden;
-}
-
-.landing-hero::before {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(116, 224, 176, 0.55), transparent);
-}
-
-.landing-hero-copy {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 18px;
-  max-width: 740px;
-}
-
-.landing-logo {
-  width: min(100%, 260px);
-  height: auto;
-  margin-bottom: 6px;
-  filter: drop-shadow(0 14px 32px rgba(116, 224, 176, 0.14));
-}
-
-.landing-kicker {
-  margin: 0;
-  color: var(--risen);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.landing-hero h1 {
-  margin: 0;
-  color: #fffdf7;
-  font-family: var(--font-body);
-  font-size: clamp(3.2rem, 10vw, 7.5rem);
-  font-weight: 700;
-  line-height: 0.92;
-  letter-spacing: 0;
-}
-
-.landing-lede {
-  max-width: 62ch;
-  margin: 0;
-  color: rgba(245, 238, 226, 0.78);
-  font-size: clamp(1.05rem, 2vw, 1.28rem);
-  line-height: 1.65;
-}
-
-.landing-auth,
-.landing-action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-top: 8px;
-}
-
-.landing-login-button {
-  min-width: min(100%, 250px);
-}
-
-.landing-page .primary-button {
-  background: linear-gradient(135deg, #ff9d45, #ff5f2e);
-  color: #160b05;
-  box-shadow: 0 16px 34px rgba(255, 111, 48, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-.landing-page .primary-button:hover {
-  box-shadow: 0 20px 42px rgba(255, 111, 48, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.landing-page .secondary-button {
-  background: rgba(116, 224, 176, 0.08);
-  border-color: rgba(116, 224, 176, 0.35);
-  color: #effff8;
-}
-
-.landing-session {
-  margin: 0;
-  color: var(--bone-mute);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
-}
-
-.landing-signal {
-  display: grid;
-  gap: 12px;
-  align-self: end;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--r-lg);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
-    rgba(6, 6, 13, 0.72);
-  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.34);
-}
-
-.landing-signal-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 74px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: var(--r-md);
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.landing-signal-card span {
-  color: var(--bone-mute);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.landing-signal-card strong {
-  color: #fffdf7;
-  font-size: 1.45rem;
-  line-height: 1;
-}
-
-.landing-how {
-  display: grid;
-  gap: 22px;
-  padding: clamp(24px, 4vw, 42px) 0;
-}
-
-.landing-section-head {
-  display: grid;
-  gap: 10px;
-  max-width: 720px;
-}
-
-.landing-section-head h2 {
-  margin: 0;
-  color: var(--bone);
-  font-size: clamp(1.8rem, 4vw, 3rem);
-  line-height: 1.05;
-  letter-spacing: 0;
-}
-
-.landing-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.landing-step {
-  min-height: 220px;
-  padding: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--r-md);
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.landing-step span {
-  display: inline-flex;
-  margin-bottom: 34px;
-  color: var(--risen);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-}
-
-.landing-step h3 {
-  margin: 0 0 10px;
-  color: #fffdf7;
-  font-size: 1.2rem;
-}
-
-.landing-step p {
-  margin: 0;
-  color: var(--bone-mute);
-  line-height: 1.62;
-}
-
-.landing-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 24px 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--bone-mute);
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-}
-
-.landing-footer span {
-  color: var(--bone-dim);
-}
-
-.landing-footer nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.landing-footer a {
-  color: var(--bone-mute);
-  text-decoration: none;
-}
-
-.landing-footer a:hover {
-  color: var(--risen);
-}
-
 .hero-panel {
   position: relative;
-  padding: clamp(28px, 4vw, 48px) !important;
-  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(28px, 4vw, 52px) !important;
 }
 
 .hero-panel::after {
   content: "";
   position: absolute;
-  inset: 0;
-  z-index: -1;
-  background:
-    radial-gradient(380px 240px at 88% 12%, rgba(139, 116, 214, 0.16), transparent 70%),
-    radial-gradient(420px 260px at -4% 96%, rgba(244, 155, 29, 0.12), transparent 70%);
+  top: -40%;
+  right: -10%;
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(255, 122, 26, 0.16), transparent 62%);
   pointer-events: none;
 }
 
-.hero-logo-lockup {
-  display: flex;
-  justify-content: flex-start;
+.hero-grid-2 {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  gap: clamp(28px, 5vw, 64px);
   align-items: center;
+}
+
+.hero-copy {
+  display: grid;
+  gap: 20px;
   min-width: 0;
-  margin-bottom: 6px;
 }
 
 .hero-logo-image {
   display: block;
-  width: min(100%, 520px);
+  width: min(100%, 300px);
   height: auto;
-  filter: drop-shadow(0 10px 40px rgba(244, 155, 29, 0.18));
+  margin-bottom: 2px;
 }
 
 .hero-title {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(2.6rem, 6vw, 4.8rem);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 5.4vw, 4.4rem);
   line-height: 0.98;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   margin: 0;
-  max-width: 16ch;
+  color: var(--ink);
 }
 
 .hero-title em {
-  font-style: italic;
-  color: var(--ember);
+  font-style: normal;
+  color: var(--accent);
 }
 
 .hero-lede {
-  max-width: 56ch;
+  max-width: 52ch;
   margin: 0;
   font-size: 1.1rem;
-  line-height: 1.75;
-  color: var(--bone-dim);
-}
-
-.hero-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.hero-metrics article {
-  padding: 18px 18px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background:
-    linear-gradient(180deg, rgba(244, 155, 29, 0.06), rgba(255, 255, 255, 0.015));
-  position: relative;
-}
-
-.hero-metrics strong {
-  display: block;
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 2.1rem;
-  line-height: 1;
-  color: var(--bone);
-}
-
-.hero-metrics span {
-  display: block;
-  margin-top: 8px;
-  color: var(--bone-mute);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1.65;
+  color: var(--ink-dim);
 }
 
 .home-cta-row,
@@ -733,58 +436,365 @@ input::placeholder {
   gap: 12px;
 }
 
-/* ---------------------------------------------------------------------------
-   "How resurrection works" ritual
-   ------------------------------------------------------------------------- */
-.ritual-howto {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+.hero-session {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-mute);
+  overflow-wrap: anywhere;
 }
 
-.ritual-card {
-  position: relative;
-  padding: 22px 20px 20px;
+/* Stat stack on the right of the hero */
+.hero-stats {
+  display: grid;
+  gap: 10px;
+}
+
+.hero-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(10, 8, 20, 0.55);
+  background: var(--surface-2);
+}
+
+.hero-stat span {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.hero-stat strong {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.7rem;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.hero-stat.is-accent strong {
+  color: var(--accent);
+}
+
+.hero-name-field {
+  max-width: 340px;
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Home — alternate "landing" markup (kept styled for cohesion)
+   ------------------------------------------------------------------------- */
+.landing-page {
+  display: grid;
+  gap: 20px;
+}
+
+.landing-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+  padding: clamp(28px, 4vw, 52px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
-.ritual-card::before {
+.landing-hero::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 3px;
-  height: 100%;
-  background: linear-gradient(180deg, var(--ember), transparent);
-  opacity: 0.7;
+  top: -40%;
+  right: -10%;
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(255, 122, 26, 0.16), transparent 62%);
+  pointer-events: none;
 }
 
-.ritual-card-index {
+.landing-hero-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.landing-logo {
+  width: min(100%, 300px);
+  height: auto;
+}
+
+.landing-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--accent-bright);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.landing-kicker::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: var(--accent);
+}
+
+.landing-hero h1 {
+  margin: 0;
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 2.4rem;
-  line-height: 1;
-  color: var(--soul);
-  display: block;
-  margin-bottom: 12px;
+  font-weight: 800;
+  font-size: clamp(3rem, 6vw, 5.2rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  color: var(--ink);
 }
 
-.ritual-card h4 {
-  margin: 0 0 8px;
-  font-family: var(--font-body);
-  font-size: 1.08rem;
+.landing-lede {
+  max-width: 56ch;
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 1.1rem;
+  line-height: 1.65;
+}
+
+.landing-auth,
+.landing-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.landing-login-button {
+  min-width: min(100%, 220px);
+}
+
+.landing-session {
+  margin: 0;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.landing-signal {
+  display: grid;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.landing-signal-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.landing-signal-card span {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.landing-signal-card strong {
+  font-family: var(--font-display);
   font-weight: 700;
-  color: var(--bone);
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--ink);
 }
 
-.ritual-card p {
+.landing-signal-card:first-child strong {
+  color: var(--accent);
+}
+
+.landing-how {
+  display: grid;
+  gap: 22px;
+  padding: clamp(24px, 3vw, 32px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.landing-section-head {
+  display: grid;
+  gap: 6px;
+  max-width: 720px;
+}
+
+.landing-section-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.9rem, 3.4vw, 2.7rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-step {
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition: border-color 180ms ease, transform 180ms ease;
+}
+
+.landing-step:hover {
+  border-color: var(--line-2);
+  transform: translateY(-2px);
+}
+
+.landing-step span {
+  display: inline-grid;
+  place-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 16px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--accent-bright);
+}
+
+.landing-step h3 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.12rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.landing-step p {
+  margin: 0;
+  color: var(--ink-mute);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.landing-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 4px 0;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.landing-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.landing-footer a {
+  color: var(--ink-mute);
+  text-decoration: none;
+}
+
+.landing-footer a:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 940px) {
+  .landing-hero {
+    grid-template-columns: 1fr;
+  }
+  .landing-signal {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .landing-signal,
+  .landing-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* How it works */
+.howto-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.howto-card {
+  position: relative;
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition: border-color 180ms ease, transform 180ms ease;
+}
+
+.howto-card:hover {
+  border-color: var(--line-2);
+  transform: translateY(-2px);
+}
+
+.howto-index {
+  display: inline-grid;
+  place-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 16px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--accent-bright);
+}
+
+.howto-card h4 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.12rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.howto-card p {
   margin: 0;
   font-size: 0.92rem;
   line-height: 1.6;
-  color: var(--bone-mute);
+  color: var(--ink-mute);
 }
 
 /* ---------------------------------------------------------------------------
@@ -792,43 +802,44 @@ input::placeholder {
    ------------------------------------------------------------------------- */
 .primary-button,
 .secondary-button {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
-  padding: 13px 22px;
+  padding: 12px 22px;
   font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.92rem;
-  letter-spacing: 0.02em;
-  transition: transform 150ms ease, box-shadow 200ms ease, opacity 150ms ease, background 150ms ease;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .primary-button {
-  position: relative;
-  background: linear-gradient(135deg, var(--ember-hot), var(--ember-deep));
-  color: #1a0f05;
-  box-shadow: 0 10px 26px rgba(244, 155, 29, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 8px 20px rgba(255, 122, 26, 0.24);
 }
 
 .primary-button:hover {
+  background: var(--accent-bright);
   transform: translateY(-2px);
-  box-shadow: 0 16px 34px rgba(244, 155, 29, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow: 0 12px 26px rgba(255, 122, 26, 0.34);
 }
 
 .secondary-button {
-  background: rgba(139, 116, 214, 0.08);
-  color: var(--bone);
-  border: 1px solid rgba(139, 116, 214, 0.42);
+  background: var(--surface-2);
+  color: var(--ink);
+  border-color: var(--line-2);
 }
 
 .secondary-button:hover {
+  background: var(--surface-3);
+  border-color: var(--ink-mute);
   transform: translateY(-2px);
-  background: rgba(139, 116, 214, 0.16);
-  box-shadow: 0 12px 26px rgba(106, 89, 184, 0.28);
 }
 
 .primary-button:disabled,
 .secondary-button:disabled {
-  opacity: 0.4;
+  background: var(--surface-3);
+  color: var(--ink-mute);
+  border-color: var(--line);
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -843,58 +854,52 @@ a.secondary-button {
   text-align: center;
 }
 
-.home-cta,
-.bounty-open-link {
-  text-decoration: none;
-}
-
 /* ---------------------------------------------------------------------------
-   Status runes
+   Status pills + chips
    ------------------------------------------------------------------------- */
-.status-rune {
+.status-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 12px 5px 10px;
+  padding: 5px 11px 5px 9px;
   border-radius: var(--r-pill);
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   white-space: nowrap;
-  border: 1px solid currentColor;
+  border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
-.status-rune-dot {
-  width: 7px;
-  height: 7px;
+.status-pill-dot {
+  width: 6px;
+  height: 6px;
   border-radius: var(--r-pill);
   background: currentColor;
-  box-shadow: 0 0 9px currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 
-.tone-ember { color: var(--ember); }
-.tone-amber { color: #f1c45a; }
-.tone-risen { color: var(--risen); }
-.tone-soul  { color: var(--soul); }
-.tone-ash   { color: var(--ash); }
+.tone-live { color: var(--accent); }
+.tone-wait { color: var(--wait); }
+.tone-good { color: var(--good); }
+.tone-work { color: var(--work); }
+.tone-dead { color: var(--dead); }
 
-/* Chips (read-only metadata tags) */
 .chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: 8px;
 }
 
 .chip {
-  padding: 7px 13px;
+  padding: 6px 12px;
   border-radius: var(--r-pill);
   font-family: var(--font-mono);
   font-size: 0.74rem;
-  color: var(--bone-dim);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.025);
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
 }
 
 /* ---------------------------------------------------------------------------
@@ -907,11 +912,11 @@ a.secondary-button {
 
 .field span,
 .detail-grid span {
-  color: var(--bone-mute);
+  color: var(--ink-mute);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.71rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
 }
 
 .field input,
@@ -919,17 +924,23 @@ a.secondary-button {
 .field select,
 .select-field {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--line-2);
   border-radius: var(--r-md);
-  padding: 14px 16px;
-  background: rgba(8, 6, 16, 0.6);
-  color: var(--bone);
+  padding: 13px 15px;
+  background: var(--bg-2);
+  color: var(--ink);
   resize: vertical;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--ink-mute);
+  font-family: var(--font-body);
 }
 
 .field textarea {
-  min-height: 112px;
+  min-height: 108px;
   font-family: var(--font-mono);
   font-size: 0.9rem;
 }
@@ -938,15 +949,15 @@ a.secondary-button {
 .select-field {
   appearance: none;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23f49b1d' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23ff9a42' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 16px center;
-  padding-right: 40px;
+  background-position: right 15px center;
+  padding-right: 38px;
 }
 
 .field select option {
-  background: var(--crypt);
-  color: var(--bone);
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .field input:focus,
@@ -954,12 +965,12 @@ a.secondary-button {
 .field select:focus,
 .select-field:focus {
   outline: none;
-  border-color: rgba(244, 155, 29, 0.55);
-  box-shadow: 0 0 0 3px rgba(244, 155, 29, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.16);
 }
 
 .muted-input {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
   font-family: var(--font-mono);
 }
@@ -969,37 +980,36 @@ a.secondary-button {
    ------------------------------------------------------------------------- */
 .marketplace-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 2fr) minmax(150px, 1fr) minmax(150px, 1fr);
+  gap: 13px;
   align-items: end;
 }
 
 .bounty-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
 
 /* ---------------------------------------------------------------------------
-   Bounty card (a tombstone slab)
+   Bounty card
    ------------------------------------------------------------------------- */
 .bounty-card {
   position: relative;
   padding: 22px;
   border-radius: var(--r-md);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(28, 21, 44, 0.6), rgba(11, 9, 19, 0.78));
+  border: 1px solid var(--line);
+  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .bounty-card-compact:hover {
   transform: translateY(-3px);
-  border-color: rgba(244, 155, 29, 0.4);
-  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.45);
+  border-color: var(--line-2);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.4);
 }
 
 .bounty-card.empty {
@@ -1008,24 +1018,26 @@ a.secondary-button {
   display: grid;
   place-content: center;
   text-align: center;
-  gap: 8px;
+  gap: 6px;
+  background: var(--surface);
+  border-style: dashed;
 }
 
 .bounty-card.empty h3 {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.8rem;
+  font-weight: 700;
+  font-size: 1.5rem;
   margin: 0;
-  color: var(--bone-dim);
+  color: var(--ink-dim);
 }
 
 .bounty-card h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.5rem;
-  line-height: 1.1;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  font-size: 1.35rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
 }
 
 .bounty-card-head {
@@ -1040,50 +1052,50 @@ a.secondary-button {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 11px;
 }
 
 .role-pill {
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 4px 9px;
   border-radius: var(--r-sm);
-  background: rgba(244, 155, 29, 0.16);
-  color: var(--ember-hot);
-  border: 1px solid rgba(244, 155, 29, 0.3);
+  background: rgba(255, 122, 26, 0.14);
+  color: var(--accent-bright);
+  border: 1px solid rgba(255, 122, 26, 0.28);
 }
 
 .role-pill-open {
-  background: rgba(139, 116, 214, 0.16);
-  color: #c3b6f0;
-  border-color: rgba(139, 116, 214, 0.35);
+  background: rgba(155, 140, 245, 0.14);
+  color: #b3a7f8;
+  border-color: rgba(155, 140, 245, 0.3);
 }
 
 .bounty-reward {
   text-align: right;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   align-items: flex-end;
 }
 
 .bounty-reward strong {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 700;
   font-size: 1.5rem;
   line-height: 1;
-  color: var(--ember-hot);
+  color: var(--accent);
   white-space: nowrap;
 }
 
 .bounty-reward span {
   font-family: var(--font-mono);
   font-size: 0.62rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--bone-mute);
+  color: var(--ink-mute);
 }
 
 .bounty-card-compact .bounty-description {
@@ -1092,13 +1104,13 @@ a.secondary-button {
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 0.92rem;
-  color: var(--bone-mute);
+  color: var(--ink-mute);
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
+  gap: 13px 16px;
 }
 
 .detail-grid > div {
@@ -1109,21 +1121,20 @@ a.secondary-button {
 .detail-grid strong {
   display: block;
   margin-top: 5px;
-  font-size: 0.95rem;
 }
 
 .detail-grid strong {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.2rem;
-  color: var(--bone);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--ink);
 }
 
 .detail-grid code {
   overflow-wrap: anywhere;
-  color: var(--soul);
+  color: var(--accent-bright);
   font-size: 0.78rem;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .bounty-card-footer {
@@ -1146,7 +1157,7 @@ a.secondary-button {
 }
 
 .detail-panel {
-  padding: 30px !important;
+  padding: clamp(22px, 3vw, 32px) !important;
 }
 
 .detail-panel > .bounty-card {
@@ -1157,27 +1168,27 @@ a.secondary-button {
 }
 
 .detail-panel .bounty-card h3 {
-  font-size: 2rem;
+  font-size: 1.9rem;
 }
 
 .protocol-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: 20px;
+  gap: 18px;
   align-items: start;
 }
 
-/* The ritual timeline — makes the lifecycle legible. */
+/* Recovery timeline */
 .ritual-timeline {
   display: grid;
   gap: 0;
-  margin: 4px 0 2px;
+  margin: 2px 0;
 }
 
 .ritual-step {
   position: relative;
   display: grid;
-  grid-template-columns: 30px 1fr;
+  grid-template-columns: 28px 1fr;
   gap: 14px;
   padding-bottom: 18px;
 }
@@ -1186,15 +1197,14 @@ a.secondary-button {
   padding-bottom: 0;
 }
 
-/* Connecting line between nodes. */
 .ritual-step::before {
   content: "";
   position: absolute;
-  left: 14px;
+  left: 13px;
   top: 26px;
-  bottom: -4px;
+  bottom: -2px;
   width: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--line-2);
 }
 
 .ritual-step:last-child::before {
@@ -1202,41 +1212,40 @@ a.secondary-button {
 }
 
 .ritual-step.is-done::before {
-  background: linear-gradient(180deg, var(--ember), rgba(244, 155, 29, 0.3));
+  background: var(--accent);
 }
 
 .ritual-node {
   position: relative;
   z-index: 1;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--r-pill);
   display: grid;
   place-content: center;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: var(--crypt);
-  color: var(--bone-mute);
+  font-size: 0.74rem;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink-mute);
 }
 
 .ritual-step.is-done .ritual-node {
-  background: linear-gradient(135deg, var(--ember-hot), var(--ember-deep));
+  background: var(--accent);
   border-color: transparent;
-  color: #1a0f05;
-  box-shadow: 0 0 16px rgba(244, 155, 29, 0.45);
+  color: var(--on-accent);
 }
 
 .ritual-step.is-current .ritual-node {
-  border-color: var(--ember);
-  color: var(--ember);
-  box-shadow: 0 0 0 4px rgba(244, 155, 29, 0.14);
-  animation: pulse-ring 2s ease-in-out infinite;
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.14);
+  animation: ring 2s ease-in-out infinite;
 }
 
-@keyframes pulse-ring {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(244, 155, 29, 0.14); }
-  50% { box-shadow: 0 0 0 7px rgba(244, 155, 29, 0.06); }
+@keyframes ring {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.14); }
+  50% { box-shadow: 0 0 0 7px rgba(255, 122, 26, 0.05); }
 }
 
 .ritual-step-body {
@@ -1246,20 +1255,20 @@ a.secondary-button {
 
 .ritual-step-body strong {
   display: block;
-  font-size: 0.98rem;
+  font-size: 0.96rem;
   font-weight: 700;
-  color: var(--bone-dim);
+  color: var(--ink-mute);
 }
 
 .ritual-step.is-current .ritual-step-body strong,
 .ritual-step.is-done .ritual-step-body strong {
-  color: var(--bone);
+  color: var(--ink);
 }
 
 .ritual-step-body small {
   display: block;
   margin-top: 3px;
-  color: var(--bone-mute);
+  color: var(--ink-mute);
   font-size: 0.82rem;
   line-height: 1.5;
 }
@@ -1270,10 +1279,10 @@ a.secondary-button {
 
 .protocol-subsection {
   display: grid;
-  gap: 14px;
+  gap: 13px;
   padding-top: 20px;
-  margin-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
 }
 
 .protocol-subsection:first-child {
@@ -1294,8 +1303,8 @@ a.secondary-button {
   gap: 10px;
   padding: 10px 14px;
   border-radius: var(--r-md);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
 }
 
 .piece-option input {
@@ -1303,12 +1312,12 @@ a.secondary-button {
 }
 
 /* ---------------------------------------------------------------------------
-   Create bounty — drop zone (a summoning circle)
+   Create bounty — drop zone
    ------------------------------------------------------------------------- */
 .bounty-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 15px;
 }
 
 .field-span-2 {
@@ -1322,26 +1331,24 @@ a.secondary-button {
 
 .drop-zone {
   grid-column: 1 / -1;
-  border: 1.5px dashed rgba(139, 116, 214, 0.4);
-  border-radius: var(--r-lg);
-  padding: 44px 28px;
+  border: 1.5px dashed var(--line-2);
+  border-radius: var(--r-md);
+  padding: 42px 28px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  transition: border-color 0.18s, background 0.18s;
   text-align: center;
-  background:
-    radial-gradient(220px 120px at 50% 40%, rgba(244, 155, 29, 0.05), transparent 70%);
+  background: var(--bg-2);
 }
 
 .drop-zone:hover,
 .drop-zone.drag-over {
-  border-color: var(--ember);
-  background: radial-gradient(260px 150px at 50% 40%, rgba(244, 155, 29, 0.1), transparent 70%);
-  transform: translateY(-1px);
+  border-color: var(--accent);
+  background: rgba(255, 122, 26, 0.05);
 }
 
 .drop-zone.has-file {
   border-style: solid;
-  border-color: rgba(116, 224, 176, 0.35);
+  border-color: rgba(58, 210, 154, 0.4);
   text-align: left;
   cursor: default;
 }
@@ -1352,24 +1359,30 @@ a.secondary-button {
 
 .drop-zone-prompt strong {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.4rem;
-  color: var(--bone);
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--ink);
 }
 
 .drop-zone-sigil {
-  font-size: 1.6rem;
-  color: var(--soul);
-  margin-bottom: 8px;
-  display: block;
+  display: inline-grid;
+  place-content: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  font-size: 1.3rem;
+  color: var(--accent);
 }
 
 .torrent-preview {
   grid-column: 1 / -1;
-  border: 1px solid rgba(116, 224, 176, 0.3);
-  border-radius: var(--r-lg);
+  border: 1px solid rgba(58, 210, 154, 0.35);
+  border-radius: var(--r-md);
   padding: 22px;
-  background: rgba(116, 224, 176, 0.04);
+  background: rgba(58, 210, 154, 0.05);
 }
 
 .torrent-preview-head {
@@ -1383,9 +1396,10 @@ a.secondary-button {
 .torrent-preview-head h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.5rem;
-  color: var(--risen);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: var(--good);
 }
 
 .torrent-preview .detail-grid {
@@ -1393,9 +1407,9 @@ a.secondary-button {
 }
 
 .clear-button {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: var(--bone-mute);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  color: var(--ink-mute);
   border-radius: var(--r-sm);
   width: 30px;
   height: 30px;
@@ -1406,8 +1420,8 @@ a.secondary-button {
 }
 
 .clear-button:hover {
-  background: rgba(255, 80, 80, 0.16);
-  color: #ff8585;
+  background: rgba(240, 103, 90, 0.16);
+  color: var(--dead);
 }
 
 .file-list {
@@ -1417,7 +1431,7 @@ a.secondary-button {
 
 .file-list summary {
   cursor: pointer;
-  color: var(--bone-mute);
+  color: var(--ink-mute);
   font-family: var(--font-mono);
   font-size: 0.8rem;
 }
@@ -1438,7 +1452,7 @@ a.secondary-button {
 }
 
 .file-list code {
-  color: var(--bone-dim);
+  color: var(--ink-dim);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
@@ -1446,89 +1460,29 @@ a.secondary-button {
 /* ---------------------------------------------------------------------------
    Responsive
    ------------------------------------------------------------------------- */
-@media (max-width: 1024px) {
-  .landing-hero {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .landing-signal {
-    max-width: 560px;
-    width: 100%;
-  }
-
-  .landing-steps {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 940px) {
+  .hero-grid-2,
   .protocol-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
 @media (max-width: 720px) {
   .page-shell {
-    padding: 16px 14px 80px;
+    padding: 14px 14px 64px;
   }
 
-  .command-column > .glass-panel,
-  .dashboard-grid > .glass-panel,
-  .protocol-grid > .glass-panel,
-  .page-main > .glass-panel {
-    padding: 22px;
-  }
-
-  .detail-panel {
-    padding: 22px !important;
-  }
-
-  .hero-metrics,
-  .landing-steps,
-  .ritual-howto,
+  .howto-grid,
+  .hero-stats,
   .bounty-form,
   .detail-grid,
-  .marketplace-toolbar {
+  .marketplace-toolbar,
+  .bounty-list {
     grid-template-columns: 1fr;
-  }
-
-  .landing-page {
-    gap: 18px;
-  }
-
-  .landing-hero {
-    padding-top: 28px;
-  }
-
-  .landing-logo {
-    width: min(100%, 220px);
-  }
-
-  .landing-login-button,
-  .landing-action-row .primary-button,
-  .landing-action-row .secondary-button {
-    width: 100%;
-  }
-
-  .landing-signal-card {
-    min-height: 64px;
-    padding: 15px;
-  }
-
-  .landing-step {
-    min-height: 0;
-  }
-
-  .landing-step span {
-    margin-bottom: 18px;
-  }
-
-  .landing-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .hero-metrics {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .field-span-2 {
@@ -1556,10 +1510,6 @@ a.secondary-button {
 
   .main-nav-session {
     justify-content: space-between;
-  }
-
-  .bounty-list {
-    grid-template-columns: 1fr;
   }
 
   .bounty-card-head {
