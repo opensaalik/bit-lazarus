@@ -9,6 +9,7 @@ import { downloadArchiveResource, uploadWalrusBlob } from "../lib/walrus.js";
 import {
   addTorrent,
   destroyWebTorrentClient,
+  loadTorrentData,
   removeTorrent,
   seedTorrent,
 } from "../lib/webtorrent-client.js";
@@ -139,6 +140,41 @@ async function safelyRemoveTorrent(torrent) {
   }
 }
 
+async function createDeliverySeedTorrent({
+  contentBytes,
+  loadedTorrentBytes,
+  loadedTorrentMetadata,
+  expectedInfoHash,
+  trackerAnnounceUrls,
+}) {
+  const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
+    type: "application/octet-stream",
+  });
+  const nativeSeedTorrent = await seedTorrent(seedFile, {
+    announce: trackerAnnounceUrls,
+    name: loadedTorrentMetadata.name,
+    pieceLength: loadedTorrentMetadata.pieceLength,
+  });
+
+  if (String(nativeSeedTorrent.infoHash).toLowerCase() === String(expectedInfoHash).toLowerCase()) {
+    return nativeSeedTorrent;
+  }
+
+  await safelyRemoveTorrent(nativeSeedTorrent);
+  const metadataTorrent = await addTorrent(loadedTorrentBytes, {
+    announce: trackerAnnounceUrls,
+  });
+
+  if (String(metadataTorrent.infoHash).toLowerCase() !== String(expectedInfoHash).toLowerCase()) {
+    await safelyRemoveTorrent(metadataTorrent);
+    throw new Error("The loaded .torrent metadata does not match this bounty info hash.");
+  }
+
+  await loadTorrentData(metadataTorrent, seedFile);
+  metadataTorrent.discovery?.tracker?.start?.();
+  return metadataTorrent;
+}
+
 export default function BountyDetailPage() {
   const { bountyId } = useParams();
   const { token, currentUser, mergeBounty, bounties, health, setStatusMessage } = useApp();
@@ -159,6 +195,7 @@ export default function BountyDetailPage() {
     peers: 0,
     uploadedBytes: 0,
     fileSha256: null,
+    message: null,
   });
   const [deliveryDownloadStatus, setDeliveryDownloadStatus] = useState({
     phase: "idle",
@@ -330,6 +367,7 @@ export default function BountyDetailPage() {
       peers: 0,
       uploadedBytes: 0,
       fileSha256: null,
+      message: null,
     });
     setDeliveryDownloadStatus({
       phase: "idle",
@@ -562,25 +600,16 @@ export default function BountyDetailPage() {
         peers: 0,
         uploadedBytes: 0,
         fileSha256,
+        message: null,
       });
 
-      const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
-        type: "application/octet-stream",
+      const torrent = await createDeliverySeedTorrent({
+        contentBytes,
+        loadedTorrentBytes,
+        loadedTorrentMetadata,
+        expectedInfoHash: bounty?.torrentInfoHash,
+        trackerAnnounceUrls,
       });
-      const torrent = await seedTorrent(seedFile, {
-        announce: trackerAnnounceUrls,
-        name: loadedTorrentMetadata.name,
-        pieceLength: loadedTorrentMetadata.pieceLength,
-      });
-
-      if (String(torrent.infoHash).toLowerCase() !== String(bounty?.torrentInfoHash ?? "").toLowerCase()) {
-        await safelyRemoveTorrent(torrent);
-        setDeliverySeedStatus((current) => ({
-          ...current,
-          phase: "error",
-        }));
-        throw new Error("The selected file does not reproduce the original torrent info hash.");
-      }
 
       hunterSeedTorrentRef.current = torrent;
 
@@ -592,16 +621,24 @@ export default function BountyDetailPage() {
           peers: torrent.numPeers ?? 0,
           uploadedBytes: torrent.uploaded ?? current.uploadedBytes,
           fileSha256,
+          message: null,
         }));
       };
 
       torrent.on("wire", updateSeedStatus);
       torrent.on("upload", updateSeedStatus);
+      torrent.on("warning", (error) => {
+        setDeliverySeedStatus((current) => ({
+          ...current,
+          message: error.message ?? String(error),
+        }));
+      });
       torrent.on("error", (error) => {
         setProtocolError(error.message ?? String(error));
         setDeliverySeedStatus((current) => ({
           ...current,
           phase: "error",
+          message: error.message ?? String(error),
         }));
       });
 
@@ -1102,6 +1139,7 @@ export default function BountyDetailPage() {
                   <strong>{deliverySeedStatus.uploadedBytes.toLocaleString()} bytes</strong>
                 </div>
               </div>
+              {deliverySeedStatus.message ? <p className="muted-copy">{deliverySeedStatus.message}</p> : null}
               <div className="button-row">
                 <button
                   className="primary-button"
