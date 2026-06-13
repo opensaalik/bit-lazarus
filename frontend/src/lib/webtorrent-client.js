@@ -1,6 +1,6 @@
 import webtorrentBundleUrl from "webtorrent/dist/webtorrent.min.js?url";
 
-let browserClient = null;
+const browserClients = new Map();
 let webTorrentCtorPromise = null;
 
 async function loadWebTorrentConstructor() {
@@ -19,17 +19,20 @@ async function loadWebTorrentConstructor() {
   return webTorrentCtorPromise;
 }
 
-export async function getWebTorrentClient() {
-  if (!browserClient) {
+export async function getWebTorrentClient(clientKey = "default") {
+  if (!browserClients.has(clientKey)) {
     const WebTorrent = await loadWebTorrentConstructor();
-    browserClient = new WebTorrent();
+    browserClients.set(clientKey, new WebTorrent({
+      seedOutgoingConnections: true,
+    }));
   }
 
-  return browserClient;
+  return browserClients.get(clientKey);
 }
 
 export async function addTorrent(source, options = {}) {
-  const client = await getWebTorrentClient();
+  const { clientKey = "default", ...torrentOptions } = options;
+  const client = await getWebTorrentClient(clientKey);
 
   return new Promise((resolve, reject) => {
     const handleError = (error) => {
@@ -38,7 +41,7 @@ export async function addTorrent(source, options = {}) {
     };
 
     client.once("error", handleError);
-    client.add(source, options, (torrent) => {
+    client.add(source, torrentOptions, (torrent) => {
       client.removeListener("error", handleError);
       resolve(torrent);
     });
@@ -101,7 +104,8 @@ export async function loadTorrentData(torrent, input) {
 }
 
 export async function seedTorrent(input, options = {}) {
-  const client = await getWebTorrentClient();
+  const { clientKey = "default", ...torrentOptions } = options;
+  const client = await getWebTorrentClient(clientKey);
 
   return new Promise((resolve, reject) => {
     const handleError = (error) => {
@@ -110,7 +114,7 @@ export async function seedTorrent(input, options = {}) {
     };
 
     client.once("error", handleError);
-    client.seed(input, options, (torrent) => {
+    client.seed(input, torrentOptions, (torrent) => {
       client.removeListener("error", handleError);
       resolve(torrent);
     });
@@ -118,10 +122,13 @@ export async function seedTorrent(input, options = {}) {
 }
 
 export async function removeTorrent(torrentId, options = {}) {
-  const client = await getWebTorrentClient();
+  const { clientKey, ...removeOptions } = options;
+  const client = options.clientKey
+    ? await getWebTorrentClient(clientKey)
+    : torrentId?.client ?? await getWebTorrentClient();
 
   return new Promise((resolve, reject) => {
-    client.remove(torrentId, options, (error) => {
+    client.remove(torrentId, removeOptions, (error) => {
       if (error) {
         reject(error);
         return;
@@ -132,21 +139,56 @@ export async function removeTorrent(torrentId, options = {}) {
   });
 }
 
-export async function destroyWebTorrentClient() {
-  if (!browserClient) {
+export async function destroyWebTorrentClient(clientKey = null) {
+  if (clientKey !== null) {
+    const client = browserClients.get(clientKey);
+
+    if (!client) {
+      return;
+    }
+
+    await new Promise((resolve, reject) => {
+      client.destroy((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    browserClients.delete(clientKey);
     return;
   }
 
-  await new Promise((resolve, reject) => {
-    browserClient.destroy((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+  await Promise.all([...browserClients.values()].map((client) => (
+    new Promise((resolve, reject) => {
+      client.destroy((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
 
-      resolve();
-    });
-  });
+        resolve();
+      });
+    })
+  )));
 
-  browserClient = null;
+  browserClients.clear();
+}
+
+export async function listWebTorrentClientState() {
+  return [...browserClients.entries()].map(([key, client]) => ({
+    key,
+    peerId: client.peerId,
+    torrents: client.torrents.map((torrent) => ({
+      infoHash: torrent.infoHash,
+      done: torrent.done,
+      ready: torrent.ready,
+      numPeers: torrent.numPeers,
+      progress: torrent.progress,
+      announce: torrent.announce,
+    })),
+  }));
 }

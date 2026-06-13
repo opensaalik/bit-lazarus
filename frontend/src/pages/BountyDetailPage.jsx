@@ -171,12 +171,14 @@ async function createDeliverySeedTorrent({
   loadedTorrentMetadata,
   expectedInfoHash,
   trackerAnnounceUrls,
+  clientKey,
 }) {
   const seedFile = new File([contentBytes], loadedTorrentMetadata.name, {
     type: "application/octet-stream",
   });
   const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
   const metadataTorrent = await addTorrent(trackerOnlyTorrentBytes, {
+    clientKey,
     announce: trackerAnnounceUrls,
   });
 
@@ -624,6 +626,7 @@ export default function BountyDetailPage() {
         loadedTorrentMetadata,
         expectedInfoHash: bounty?.torrentInfoHash,
         trackerAnnounceUrls,
+        clientKey: `seed:${activeContract.id}`,
       });
 
       hunterSeedTorrentRef.current = torrent;
@@ -726,6 +729,7 @@ export default function BountyDetailPage() {
 
       const trackerOnlyTorrentBytes = rewriteTorrentAnnounceUrls(loadedTorrentBytes, trackerAnnounceUrls);
       const torrent = await addTorrent(trackerOnlyTorrentBytes, {
+        clientKey: `download:${activeContract.id}`,
         announce: trackerAnnounceUrls,
       });
       requesterDownloadTorrentRef.current = torrent;
