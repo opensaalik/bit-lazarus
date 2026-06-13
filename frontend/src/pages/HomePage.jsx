@@ -16,7 +16,6 @@ export default function HomePage() {
     currentUser,
     loading,
     handleChallengeRequest,
-    handleDemoLogin,
     handleVerify,
     openBounties,
     awaitingFunding,
@@ -35,11 +34,11 @@ export default function HomePage() {
         </div>
         <div className="panel-head">
           <p className="eyebrow">Bit Lazarus Demo</p>
-          <h1>Recover a dead torrent with Polar-backed escrow</h1>
+          <h1>Recover a dead torrent with Arc escrow</h1>
         </div>
         <p className="muted-copy">
-          This demo keeps only the working hackathon flow: Bitcoin challenge auth, torrent-file bounties,
-          Polar-funded escrow and bonds, and WebTorrent delivery with SHA-256 verification.
+          Ethereum wallet auth, torrent-file bounties, ENS resource lookup, WebTorrent delivery,
+          and Arc USDC escrow for settlement.
         </p>
 
         <div className="hero-metrics">
@@ -74,44 +73,14 @@ export default function HomePage() {
       <section className="glass-panel stack">
         <div className="panel-head">
           <p className="eyebrow">Login</p>
-          <h2>{token && currentUser ? currentUser.displayName ?? currentUser.walletAddress : "Bitcoin wallet challenge"}</h2>
+          <h2>{token && currentUser ? currentUser.displayName ?? currentUser.walletAddress : "Ethereum wallet challenge"}</h2>
         </div>
         <p className="muted-copy">
-          For the demo, use the one-click Polar login buttons. Manual challenge signing is still available below.
+          Sign the issued message with the same Ethereum wallet you will use for Arc interactions.
         </p>
 
         {!token ? (
           <div className="stack">
-            {health?.auth?.backendDemoAuth ? (
-              <div className="stack">
-                <div className="button-row">
-                  <button
-                    className="primary-button"
-                    disabled={loading}
-                    onClick={() => {
-                      void handleDemoLogin("requester");
-                    }}
-                    type="button"
-                  >
-                    Login as Requester
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={loading}
-                    onClick={() => {
-                      void handleDemoLogin("hunter");
-                    }}
-                    type="button"
-                  >
-                    Login as Hunter
-                  </button>
-                </div>
-                <p className="muted-copy">
-                  Use separate browser profiles for requester and hunter.
-                </p>
-              </div>
-            ) : null}
-
             <form className="stack" onSubmit={handleChallengeRequest}>
               <label className="field">
                 <span>Display name (optional)</span>
@@ -122,10 +91,10 @@ export default function HomePage() {
                 />
               </label>
               <label className="field">
-                <span>Bitcoin wallet address</span>
+                <span>Ethereum wallet address</span>
                 <input
                   onChange={(event) => setWalletAddress(event.target.value)}
-                  placeholder="tb1q... or legacy regtest address"
+                  placeholder="0x..."
                   required
                   value={walletAddress}
                 />

@@ -58,12 +58,8 @@ function getProtocolHeadline({ bounty, activeContract, hunterCount }) {
     return "Requester download and verify the file";
   }
 
-  if (activeContract?.state === "BOND_PENDING") {
-    return "Fund the collateral bonds";
-  }
-
   if (bounty.escrowStatus === "AWAITING_FUNDING") {
-    return "Fund the bounty escrow";
+    return "Fund the Arc bounty escrow";
   }
 
   if (bounty.status === "OPEN" && hunterCount > 0) {
@@ -91,22 +87,6 @@ function formatProtocolRole({ bounty, currentUser, isJoinedHunter }) {
   }
 
   return "Viewer";
-}
-
-function getUserBondEscrowId(contract, userId) {
-  if (!contract || !userId) {
-    return null;
-  }
-
-  if (contract.payerUserId === userId) {
-    return contract.payerBondEscrowId;
-  }
-
-  if (contract.hunterUserId === userId) {
-    return contract.hunterBondEscrowId;
-  }
-
-  return null;
 }
 
 function formatPercent(value) {
@@ -151,8 +131,6 @@ export default function BountyDetailPage() {
   const { token, currentUser, mergeBounty, bounties, health, setStatusMessage } = useApp();
   const [bounty, setBounty] = useState(() => bounties.find((record) => record.id === bountyId) ?? null);
   const [contracts, setContracts] = useState([]);
-  const [currentBondEscrow, setCurrentBondEscrow] = useState(null);
-  const [rewardEscrow, setRewardEscrow] = useState(null);
   const [torrentBytes, setTorrentBytes] = useState(null);
   const [torrentMetadata, setTorrentMetadata] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -204,7 +182,6 @@ export default function BountyDetailPage() {
   const isParticipant = Boolean(token && currentUser && (isCreator || isJoinedHunter));
   const trackerAnnounceUrls = useMemo(() => getTrackerAnnounceUrls(health), [health]);
   const canUseWebTorrentTransfer = trackerAnnounceUrls.length > 0;
-  const bountyFundingPaymentRequest = bounty?.funding?.paymentRequest ?? null;
   const activeContract = useMemo(
     () => getLatestById(contracts, bounty?.activeContractIds ?? []),
     [contracts, bounty?.activeContractIds],
@@ -261,7 +238,7 @@ export default function BountyDetailPage() {
     };
   }, [bounty, token, torrentBytes, torrentMetadata]);
 
-  const refreshDetail = useCallback(async ({ syncEscrow = false, quiet = false } = {}) => {
+  const refreshDetail = useCallback(async ({ quiet = false } = {}) => {
     if (!token || !bountyId) {
       return null;
     }
@@ -273,9 +250,7 @@ export default function BountyDetailPage() {
     }
 
     try {
-      const bountyPayload = syncEscrow
-        ? await requestJson(`/bounties/${bountyId}/sync-escrow`, { method: "POST", token })
-        : await requestJson(`/bounties/${bountyId}`, { token });
+      const bountyPayload = await requestJson(`/bounties/${bountyId}`, { token });
       const nextBounty = bountyPayload.bounty;
       setBounty(nextBounty);
       mergeBounty(nextBounty);
@@ -288,45 +263,12 @@ export default function BountyDetailPage() {
 
       if (!canViewProtocol) {
         setContracts([]);
-        setCurrentBondEscrow(null);
-        setRewardEscrow(null);
         return nextBounty;
       }
 
       const contractPayload = await requestJson(`/bounties/${bountyId}/contracts`, { token });
       const nextContracts = [...contractPayload.contracts].sort(sortNewestFirst);
       setContracts(nextContracts);
-
-      const nextActiveContract = getLatestById(nextContracts, nextBounty.activeContractIds ?? []);
-
-      if (!nextActiveContract) {
-        setCurrentBondEscrow(null);
-        setRewardEscrow(null);
-        return nextBounty;
-      }
-
-      const bondEscrowId = getUserBondEscrowId(nextActiveContract, currentUser?.id);
-      const escrowRequests = [];
-
-      if (bondEscrowId) {
-        escrowRequests.push(
-          requestJson(`/escrows/${bondEscrowId}`, { token })
-            .then((payload) => ({ kind: "bond", escrow: payload.escrow }))
-            .catch(() => ({ kind: "bond", escrow: null })),
-        );
-      }
-
-      if (nextActiveContract.rewardEscrowId && nextActiveContract.payerUserId === currentUser?.id) {
-        escrowRequests.push(
-          requestJson(`/escrows/${nextActiveContract.rewardEscrowId}`, { token })
-            .then((payload) => ({ kind: "reward", escrow: payload.escrow }))
-            .catch(() => ({ kind: "reward", escrow: null })),
-        );
-      }
-
-      const escrowPayloads = await Promise.all(escrowRequests);
-      setCurrentBondEscrow(escrowPayloads.find((record) => record.kind === "bond")?.escrow ?? null);
-      setRewardEscrow(escrowPayloads.find((record) => record.kind === "reward")?.escrow ?? null);
 
       return nextBounty;
     } catch (error) {
@@ -410,7 +352,6 @@ export default function BountyDetailPage() {
 
     const intervalId = window.setInterval(() => {
       refreshDetail({
-        syncEscrow: bounty?.escrowStatus === "AWAITING_FUNDING",
         quiet: true,
       });
     }, POLL_INTERVAL_MS);
@@ -418,7 +359,7 @@ export default function BountyDetailPage() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [bounty?.escrowStatus, refreshDetail, shouldPoll]);
+  }, [refreshDetail, shouldPoll]);
 
   const runAction = useCallback(async (fn) => {
     setActionLoading(true);
@@ -432,13 +373,6 @@ export default function BountyDetailPage() {
     }
   }, [setStatusMessage]);
 
-  const handleSyncEscrow = useCallback(() => {
-    void runAction(async () => {
-      await refreshDetail({ syncEscrow: true });
-      setStatusMessage(`Escrow sync complete for bounty ${bountyId}.`);
-    });
-  }, [bountyId, refreshDetail, runAction, setStatusMessage]);
-
   const handleJoinBounty = useCallback(() => {
     void runAction(async () => {
       const payload = await requestJson(`/bounties/${bountyId}/hunt`, {
@@ -451,21 +385,6 @@ export default function BountyDetailPage() {
       setStatusMessage("Joined bounty as a hunter.");
     });
   }, [bountyId, mergeBounty, refreshDetail, runAction, setStatusMessage, token]);
-
-  const handleFundEscrow = useCallback(() => {
-    void runAction(async () => {
-      if (!bountyFundingPaymentRequest) {
-        throw new Error("No Lightning invoice is available for this bounty escrow.");
-      }
-
-      await requestJson(`/bounties/${bountyId}/demo-fund`, {
-        method: "POST",
-        token,
-      });
-      await refreshDetail({ syncEscrow: true });
-      setStatusMessage("Escrow funded from Polar and synced.");
-    });
-  }, [bountyFundingPaymentRequest, bountyId, refreshDetail, runAction, setStatusMessage, token]);
 
   const handleCreateContract = useCallback(() => {
     void runAction(async () => {
@@ -481,7 +400,7 @@ export default function BountyDetailPage() {
         body: { hunterUserId },
       });
       await refreshDetail({ quiet: true });
-      setStatusMessage("Created the delivery contract and opened both bond escrows.");
+      setStatusMessage("Created the delivery contract.");
     });
   }, [activeHunter?.userId, bountyId, refreshDetail, runAction, selectedHunterUserId, setStatusMessage, token]);
 
@@ -497,51 +416,6 @@ export default function BountyDetailPage() {
     setContentFileName(file.name);
     setStatusMessage(`Loaded content file ${file.name}.`);
   }, [setStatusMessage]);
-
-  const handleRegisterPayoutInvoice = useCallback(() => {
-    void runAction(async () => {
-      if (!activeContract) {
-        throw new Error("A delivery contract is required before registering payout details.");
-      }
-
-      await requestJson(`/contracts/${activeContract.id}/demo-payout-invoice`, {
-        method: "POST",
-        token,
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage("Created and registered the hunter payout invoice from Polar.");
-    });
-  }, [activeContract, refreshDetail, runAction, setStatusMessage, token]);
-
-  const handlePayBond = useCallback(() => {
-    void runAction(async () => {
-      if (!activeContract || !currentBondEscrow?.funding?.paymentRequest) {
-        throw new Error("Your bond invoice is not available.");
-      }
-
-      await requestJson(`/contracts/${activeContract.id}/demo-pay-bond`, {
-        method: "POST",
-        token,
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage("Bond payment sent from Polar and synced.");
-    });
-  }, [activeContract, currentBondEscrow?.funding?.paymentRequest, refreshDetail, runAction, setStatusMessage, token]);
-
-  const handleSyncBonds = useCallback(() => {
-    void runAction(async () => {
-      if (!activeContract) {
-        throw new Error("No delivery contract is active.");
-      }
-
-      await requestJson(`/contracts/${activeContract.id}/sync-bonds`, {
-        method: "POST",
-        token,
-      });
-      await refreshDetail({ quiet: true });
-      setStatusMessage("Bond escrow state synced.");
-    });
-  }, [activeContract, refreshDetail, runAction, setStatusMessage, token]);
 
   const waitForResolvedContract = useCallback(async (contractId) => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -583,7 +457,7 @@ export default function BountyDetailPage() {
       }
 
       if (Array.isArray(loadedTorrentMetadata.files) && loadedTorrentMetadata.files.length > 1) {
-        throw new Error("This demo only supports single-file torrents for browser seeding.");
+        throw new Error("Browser seeding currently supports single-file torrents.");
       }
 
       const expectedPayloadSize = getExpectedTorrentPayloadSize(loadedTorrentMetadata);
@@ -958,20 +832,16 @@ export default function BountyDetailPage() {
           {activeContract ? (
             <div className="detail-grid protocol-detail-grid">
               <div>
-                <span>Requester bond</span>
-                <strong>{activeContract.payerBondStatus}</strong>
-              </div>
-              <div>
-                <span>Hunter bond</span>
-                <strong>{activeContract.hunterBondStatus}</strong>
-              </div>
-              <div>
                 <span>Delivery hash</span>
                 <strong>{activeContract.deliveryHashStatus}</strong>
               </div>
               <div>
-                <span>Payout invoice</span>
-                <strong>{activeContract.hunterPayoutPaymentRequest ? "Registered" : "Missing"}</strong>
+                <span>Reward</span>
+                <strong>
+                  {Number.isFinite(activeContract.rewardAmountUnits)
+                    ? `${(activeContract.rewardAmountUnits / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${activeContract.rewardToken ?? "USDC"}`
+                    : activeContract.rewardToken ?? "USDC"}
+                </strong>
               </div>
             </div>
           ) : null}
@@ -991,7 +861,7 @@ export default function BountyDetailPage() {
                 <h3>Become the hunter</h3>
               </div>
               <p className="muted-copy">
-                Join this bounty to enter the bonded delivery flow.
+                Join this bounty to enter the delivery flow.
               </p>
               <div className="button-row">
                 <button
@@ -1001,14 +871,6 @@ export default function BountyDetailPage() {
                   type="button"
                 >
                   Hunt bounty
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={actionLoading}
-                  onClick={handleSyncEscrow}
-                  type="button"
-                >
-                  Sync escrow
                 </button>
               </div>
             </div>
@@ -1021,26 +883,9 @@ export default function BountyDetailPage() {
                 <h3>Escrow still needs funding</h3>
               </div>
               <p className="muted-copy">
-                Fund the bounty invoice to open the hunt. In demo mode the backend can pay it directly from the Polar requester node.
+                Arc escrow funding is the next integration point. Once the Arc contract reports the bounty as funded,
+                this bounty can open for hunters.
               </p>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  disabled={actionLoading || !bountyFundingPaymentRequest}
-                  onClick={handleFundEscrow}
-                  type="button"
-                >
-                  Fund escrow from Polar
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={actionLoading}
-                  onClick={handleSyncEscrow}
-                  type="button"
-                >
-                  Sync escrow
-                </button>
-              </div>
             </div>
           ) : null}
 
@@ -1051,7 +896,7 @@ export default function BountyDetailPage() {
                 <h3>No hunter has joined yet</h3>
               </div>
               <p className="muted-copy">
-                Once a hunter joins, create the delivery contract and open both bond escrows.
+                Once a hunter joins, create the delivery contract.
               </p>
             </div>
           ) : null}
@@ -1063,7 +908,7 @@ export default function BountyDetailPage() {
                 <h3>Choose the hunter and lock in delivery</h3>
               </div>
               <p className="muted-copy">
-                Skip pre-verification and rely on the bond system plus final SHA-256 match to settle the demo.
+                The requester and hunter will use final SHA-256 verification before archiving to Walrus.
               </p>
               <label className="field">
                 <span>Hunter</span>
@@ -1098,80 +943,8 @@ export default function BountyDetailPage() {
                 <h3>Requester must create the contract</h3>
               </div>
               <p className="muted-copy">
-                The requester will choose a hunter and open both bond escrows before delivery starts.
+                The requester will choose a hunter and create the delivery contract before delivery starts.
               </p>
-            </div>
-          ) : null}
-
-          {isActiveHunter && activeContract && !activeContract.hunterPayoutPaymentRequest ? (
-            <div className="protocol-subsection">
-              <div className="panel-head">
-                <p className="eyebrow">Payout</p>
-                <h3>Register your payout invoice</h3>
-              </div>
-              <p className="muted-copy">
-                Create the hunter payout invoice for the {bounty.rewardSats.toLocaleString()} sat reward. In demo mode this comes directly from the Polar hunter node.
-              </p>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  disabled={actionLoading}
-                  onClick={handleRegisterPayoutInvoice}
-                  type="button"
-                >
-                  Create and register payout invoice
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {activeContract && currentBondEscrow ? (
-            <div className="protocol-subsection">
-              <div className="panel-head">
-                <p className="eyebrow">Bond</p>
-                <h3>Fund your bond escrow</h3>
-              </div>
-              <p className="muted-copy">
-                Each side locks {bounty.bondAmountSats.toLocaleString()} sats as collateral. The backend can pay your bond from the mapped Polar node.
-              </p>
-              <div className="detail-grid protocol-detail-grid">
-                <div>
-                  <span>Escrow</span>
-                  <strong>{currentBondEscrow.status}</strong>
-                </div>
-                <div>
-                  <span>Amount</span>
-                  <strong>{currentBondEscrow.amountSats?.toLocaleString() ?? bounty.bondAmountSats.toLocaleString()} sats</strong>
-                </div>
-                <div>
-                  <span>Invoice</span>
-                  <strong>{currentBondEscrow.funding?.paymentRequest ? "Ready" : "Missing"}</strong>
-                </div>
-                {rewardEscrow ? (
-                  <div>
-                    <span>Reward escrow</span>
-                    <strong>{rewardEscrow.status}</strong>
-                  </div>
-                ) : null}
-              </div>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  disabled={actionLoading || !currentBondEscrow.funding?.paymentRequest}
-                  onClick={handlePayBond}
-                  type="button"
-                >
-                  Pay my bond from Polar
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={actionLoading}
-                  onClick={handleSyncBonds}
-                  type="button"
-                >
-                  Sync bonds
-                </button>
-              </div>
             </div>
           ) : null}
 

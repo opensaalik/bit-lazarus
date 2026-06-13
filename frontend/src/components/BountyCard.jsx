@@ -6,8 +6,6 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
     currentUser,
     token,
     loading,
-    handleFundEscrow,
-    handleSyncBounty,
     handleHuntBounty,
     formatBytes,
   } = useApp();
@@ -16,6 +14,11 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
   const tags = Array.isArray(bounty.tags) ? bounty.tags : [];
   const isCreator = bounty.creatorUserId === currentUser?.id;
   const pieceCount = Number.isFinite(bounty.torrentMeta?.pieceCount) ? bounty.torrentMeta.pieceCount : null;
+  const reward = Number.isFinite(bounty.rewardAmountUnits)
+    ? `${(bounty.rewardAmountUnits / 1_000_000).toLocaleString(undefined, {
+      maximumFractionDigits: 6,
+    })} ${bounty.rewardToken ?? "USDC"}`
+    : `${bounty.rewardToken ?? "USDC"} reward`;
 
   return (
     <article className={`bounty-card${compact ? " bounty-card-compact" : ""}`}>
@@ -28,11 +31,8 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
           </p>
           <h3>{bounty.title}</h3>
         </div>
-        <div className="bounty-sats">
-          <strong>{bounty.rewardSats.toLocaleString()} sats</strong>
-          {bounty.bondAmountSats ? (
-            <span className="bond-chip">{bounty.bondAmountSats.toLocaleString()} sats bond</span>
-          ) : null}
+        <div className="bounty-reward">
+          <strong>{reward}</strong>
         </div>
       </div>
       <p className="bounty-description">{bounty.description}</p>
@@ -79,16 +79,6 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
         </div>
       ) : hideActions ? null : (
         <div className="button-row">
-          {bounty.escrowStatus === "AWAITING_FUNDING" && isCreator ? (
-            <button
-              className="primary-button"
-              disabled={!token || loading}
-              onClick={() => handleFundEscrow(bounty)}
-              type="button"
-            >
-              Fund escrow from Polar
-            </button>
-          ) : null}
           {bounty.hasTorrentFile ? (
             <a
               className="secondary-button"
@@ -98,14 +88,6 @@ export default function BountyCard({ bounty, compact = false, hideActions = fals
               Download .torrent
             </a>
           ) : null}
-          <button
-            className="secondary-button"
-            disabled={!token || loading}
-            onClick={() => handleSyncBounty(bounty.id)}
-            type="button"
-          >
-            Sync escrow
-          </button>
           <button
             className="primary-button"
             disabled={!token || loading || bounty.status !== "OPEN" || isCreator}

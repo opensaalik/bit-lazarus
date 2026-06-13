@@ -1,39 +1,21 @@
 # Bit Lazarus
 
-Bit Lazarus is a hackathon demo for recovering a dead torrent with a bonded requester/hunter flow.
+Bit Lazarus is a torrent recovery bounty app. A requester creates a bounty from a real `.torrent` file, the torrent infohash derives an ENS wildcard name, a hunter proves delivery by seeding the recovered file, and the archive can later resolve through ENS to Walrus.
 
-The demo flow is:
+The production direction is:
 
-1. A requester creates a bounty from a real `.torrent` file.
-2. The backend funds the requester escrow from a Polar-backed Lightning node.
-3. A hunter joins the bounty.
-4. The requester creates the delivery contract.
-5. Both sides lock bonds.
-6. The hunter seeds the recovered file over WebTorrent.
-7. The requester downloads it, hashes it, and the backend settles if the SHA-256 matches.
+1. A requester signs in with an Ethereum wallet.
+2. A bounty is created from a `.torrent` file and a USDC reward amount.
+3. The torrent infohash derives `btih-<infohash>.bitlazarus.eth`.
+4. ENS wildcard CCIP Read resolves status, infohash, and archived Walrus records.
+5. Arc becomes the USDC escrow and settlement layer.
+6. After verified delivery, the recovered file is archived to Walrus and served through the ENS resource record.
 
 ## Requirements
 
 - Node `>=20`
-- [Polar](https://lightningpolar.com/)
-
-## Polar Setup
-
-This repo includes the Polar network export you should use for the demo:
-
-- [bit-lazarus.polar.zip](/home/croxx/vixen/bit-lazarus/bit-lazarus.polar.zip)
-
-In Polar:
-
-1. Import `bit-lazarus.polar.zip`
-2. Start the network
-3. Load the nodes with funds before running the app
-
-The imported network is expected to provide:
-
-- `lazarus` for the app backend
-- `requester` for requester-side demo payments
-- `hunter` for hunter-side demo payments
+- An Ethereum wallet for app login and Arc interactions
+- Sepolia RPC and `bitlazarus.eth` owner key only when deploying the ENS wildcard resolver
 
 ## Install
 
@@ -41,44 +23,46 @@ The imported network is expected to provide:
 npm install
 ```
 
-## Run The Backend
-
-Start the backend from the repo root:
+## Run The App Backend
 
 ```bash
-WALLET_AUTH_BACKEND=bitcoin-cli \
-BITCOIN_CLI_CHAIN=regtest \
-BITCOIN_CLI_RPCCONNECT=127.0.0.1 \
-BITCOIN_CLI_RPCPORT=18443 \
-BITCOIN_CLI_RPCUSER=polaruser \
-BITCOIN_CLI_RPCPASSWORD=polarpass \
-LIGHTNING_BACKEND=lnd-rest \
-LIGHTNING_LND_REST_URL='https://127.0.0.1:8084' \
-LIGHTNING_LND_MACAROON_HEX="$(xxd -p -c 999999 ~/.polar/networks/1/volumes/lnd/lazarus/data/chain/bitcoin/regtest/admin.macaroon | tr -d '\n')" \
-LIGHTNING_LND_TLS_SKIP_VERIFY=1 \
-POLAR_DEMO_REQUESTER_LND_REST_URL='https://127.0.0.1:8085' \
-POLAR_DEMO_REQUESTER_LND_MACAROON_HEX="$(xxd -p -c 999999 ~/.polar/networks/1/volumes/lnd/requester/data/chain/bitcoin/regtest/admin.macaroon | tr -d '\n')" \
-POLAR_DEMO_REQUESTER_LND_TLS_SKIP_VERIFY=1 \
-POLAR_DEMO_HUNTER_LND_REST_URL='https://127.0.0.1:8081' \
-POLAR_DEMO_HUNTER_LND_MACAROON_HEX="$(xxd -p -c 999999 ~/.polar/networks/1/volumes/lnd/hunter/data/chain/bitcoin/regtest/admin.macaroon | tr -d '\n')" \
-POLAR_DEMO_HUNTER_LND_TLS_SKIP_VERIFY=1 \
-POLAR_DEMO_BITCOIN_RPC_URL='http://127.0.0.1:18443' \
-POLAR_DEMO_BITCOIN_RPC_USER='polaruser' \
-POLAR_DEMO_BITCOIN_RPC_PASSWORD='polarpass' \
-POLAR_DEMO_REQUESTER_BITCOIN_WALLET='requester-auth' \
-POLAR_DEMO_HUNTER_BITCOIN_WALLET='hunter-auth' \
-WEBTORRENT_TRACKER_HOST='127.0.0.1' \
-WEBTORRENT_TRACKER_PORT='8001' \
-WEBTORRENT_TRACKER_PUBLIC_HOST='127.0.0.1' \
-WEBTORRENT_TRACKER_PUBLIC_PORT='8001' \
-PORT=3000 \
-DATA_DIR=./data/polar-demo \
+ENS_PARENT_NAME=bitlazarus.eth \
+ENS_NETWORK=sepolia \
+DATA_DIR=./data/local \
 npm start
 ```
 
 The backend runs on:
 
 - `http://127.0.0.1:3000`
+
+## Run The ENS CCIP Gateway
+
+Use this lighter process when hosting only the ENS offchain gateway:
+
+```bash
+ENS_PARENT_NAME=bitlazarus.eth \
+ENS_NETWORK=sepolia \
+DATA_DIR=./data/gateway \
+npm run ccip:gateway
+```
+
+The deployed gateway URL should be configured in the resolver deploy env as:
+
+```bash
+ENS_CCIP_GATEWAY_URL=https://bit-lazarus.onrender.com/ens/ccip/{sender}/{data}
+```
+
+## Deploy The Wildcard Resolver
+
+```bash
+ENS_PARENT_NAME=bitlazarus.eth \
+ENS_NETWORK=sepolia \
+ENS_CCIP_GATEWAY_URL=https://bit-lazarus.onrender.com/ens/ccip/{sender}/{data} \
+ENS_RPC_URL=<sepolia-rpc-url> \
+ENS_PRIVATE_KEY=<bitlazarus.eth-owner-private-key> \
+npm run ens:deploy-resolver
+```
 
 ## Run The Frontend
 
@@ -92,35 +76,23 @@ Open the Vite URL it prints, usually:
 
 - `http://127.0.0.1:5173`
 
-## Logging In
-
-Use two separate browser profiles or one normal window plus one private window.
-
-On the Home page:
-
-- click `Login as Requester` in one browser profile
-- click `Login as Hunter` in the other
-
-Those buttons use the backend's Polar/Bitcoin Core integration, so no shell auth step or token copy/paste is needed.
-
 ## Demo Files
 
 Use the bundled fixture files:
 
-- [fixture-a.torrent](/home/croxx/vixen/bit-lazarus/manual-test/torrents/fixture-a.torrent)
-- [fixture-a.bin](/home/croxx/vixen/bit-lazarus/manual-test/content/fixture-a.bin)
+- [fixture-a.torrent](manual-test/torrents/fixture-a.torrent)
+- [fixture-a.bin](manual-test/content/fixture-a.bin)
 
-## Demo Flow
+## Current Flow
 
-1. Log in as requester and hunter in separate browser profiles.
-2. As requester, create a bounty with `fixture-a.torrent`.
-3. As hunter, open the bounty and click `Hunt bounty`.
-4. As requester, create the delivery contract.
-5. As hunter, create and register the payout invoice.
-6. Both sides pay their bond from Polar.
-7. As hunter, load `fixture-a.bin`, commit the SHA-256, and start seeding.
-8. As requester, start the download.
-9. After the download completes, save the file with `Download recovered file`.
+1. Connect with an Ethereum wallet by signing the login challenge.
+2. Create a bounty with `fixture-a.torrent` and a USDC reward amount.
+3. Fund/open the bounty through the Arc escrow integration once deployed.
+4. As hunter, open the bounty and click `Hunt bounty`.
+5. As requester, create the delivery contract.
+6. As hunter, load `fixture-a.bin`, commit the SHA-256, and start seeding.
+7. As requester, start the download and verify the SHA-256.
+8. Archive the recovered file to Walrus and expose it through ENS.
 
 ## Verification
 
@@ -128,5 +100,3 @@ Use the bundled fixture files:
 npm test
 npm run frontend:build
 ```
-
-*Won 1st place at MIT Bitcoin Hackathon*

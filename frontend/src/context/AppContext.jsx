@@ -24,7 +24,7 @@ export function useApp() {
 
 export function AppProvider({ children }) {
   const [health, setHealth] = useState(null);
-  const [statusMessage, setStatusMessage] = useState("Booting the demo relay...");
+  const [statusMessage, setStatusMessage] = useState("Booting Bit Lazarus...");
   const [walletAddress, setWalletAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [challenge, setChallenge] = useState(null);
@@ -35,7 +35,7 @@ export function AppProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [torrentMeta, setTorrentMeta] = useState(null);
   const [torrentBase64, setTorrentBase64] = useState(null);
-  const [rewardSats, setRewardSats] = useState("25000");
+  const [rewardAmountUsdc, setRewardAmountUsdc] = useState("25");
   const [bountyDescription, setBountyDescription] = useState("");
   const [dragOver, setDragOver] = useState(false);
 
@@ -110,7 +110,7 @@ export function AppProvider({ children }) {
       });
       setChallenge(payload.challenge);
       setSignature("");
-      setStatusMessage("Challenge issued. Sign it with the Polar/Bitcoin wallet, then verify the session.");
+      setStatusMessage("Challenge issued. Sign it with your Ethereum wallet, then verify the session.");
     } catch (error) {
       setStatusMessage(error.message);
     } finally {
@@ -135,31 +135,6 @@ export function AppProvider({ children }) {
       setToken(payload.session.token);
       setChallenge(null);
       setSignature("");
-      setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
-    } catch (error) {
-      setStatusMessage(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDemoLogin(role) {
-    setLoading(true);
-
-    try {
-      const defaultName = role === "requester" ? "Requester" : role === "hunter" ? "Hunter" : "";
-      const payload = await requestJson("/auth/demo-login", {
-        method: "POST",
-        body: {
-          role,
-          displayName: displayName || defaultName,
-        },
-      });
-      setToken(payload.session.token);
-      setChallenge(null);
-      setSignature("");
-      setWalletAddress(payload.user.walletAddress ?? "");
-      setDisplayName(payload.user.displayName ?? defaultName);
       setStatusMessage(`Connected as ${payload.user.displayName ?? payload.user.walletAddress}`);
     } catch (error) {
       setStatusMessage(error.message);
@@ -216,7 +191,13 @@ export function AppProvider({ children }) {
     setLoading(true);
 
     try {
-      const sats = Number.parseInt(rewardSats, 10);
+      const rewardAmount = Number.parseFloat(rewardAmountUsdc);
+
+      if (!Number.isFinite(rewardAmount) || rewardAmount <= 0) {
+        throw new Error("Reward must be a positive USDC amount.");
+      }
+
+      const rewardAmountUnits = Math.round(rewardAmount * 1_000_000);
 
       const payload = await requestJson("/bounties", {
         method: "POST",
@@ -226,8 +207,9 @@ export function AppProvider({ children }) {
           description: bountyDescription || `Bounty for ${torrentMeta.name}`,
           torrentInfoHash: torrentMeta.infoHash,
           torrentName: torrentMeta.name,
-          rewardSats: sats,
-          tags: ["demo"],
+          rewardAmountUnits,
+          rewardToken: "USDC",
+          tags: ["arc"],
           torrentFileBase64: torrentBase64,
           pieceCount: torrentMeta.pieceCount || undefined,
           pieceLength: torrentMeta.pieceLength ?? undefined,
@@ -239,22 +221,11 @@ export function AppProvider({ children }) {
       const bounty = payload.bounty;
       setBounties((currentBounties) => [bounty, ...currentBounties]);
 
-      if (bounty.funding?.paymentRequest) {
-        const demoPayload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
-          method: "POST",
-          token,
-        });
-        setBounties((currentBounties) =>
-          currentBounties.map((record) => (record.id === bounty.id ? demoPayload.bounty : record)),
-        );
-        setStatusMessage(`Bounty "${bounty.title}" is live via Polar demo funding.`);
-      } else {
-        setStatusMessage(`Bounty "${bounty.title}" created.`);
-      }
+      setStatusMessage(`Bounty "${bounty.title}" created. Arc funding integration is next.`);
 
       setTorrentMeta(null);
       setTorrentBase64(null);
-      setRewardSats("25000");
+      setRewardAmountUsdc("25");
       setBountyDescription("");
 
       if (typeof onCreated === "function") {
@@ -289,25 +260,6 @@ export function AppProvider({ children }) {
     }
   }
 
-  async function handleSyncBounty(bountyId) {
-    setLoading(true);
-
-    try {
-      const payload = await requestJson(`/bounties/${bountyId}/sync-escrow`, {
-        method: "POST",
-        token,
-      });
-      setBounties((currentBounties) =>
-        currentBounties.map((bounty) => (bounty.id === bountyId ? payload.bounty : bounty)),
-      );
-      setStatusMessage(`Escrow sync complete for ${bountyId}.`);
-    } catch (error) {
-      setStatusMessage(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const mergeBounty = useCallback((bounty) => {
     setBounties((currentBounties) => {
       const index = currentBounties.findIndex((record) => record.id === bounty.id);
@@ -319,30 +271,6 @@ export function AppProvider({ children }) {
       return currentBounties.map((record) => (record.id === bounty.id ? bounty : record));
     });
   }, []);
-
-  async function handleFundEscrow(bounty) {
-    if (!bounty.funding?.paymentRequest) {
-      setStatusMessage("No invoice available for this escrow.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const payload = await requestJson(`/bounties/${bounty.id}/demo-fund`, {
-        method: "POST",
-        token,
-      });
-      setBounties((currentBounties) =>
-        currentBounties.map((record) => (record.id === bounty.id ? payload.bounty : record)),
-      );
-      setStatusMessage(`Escrow funded for bounty "${bounty.title}" via Polar demo.`);
-    } catch (error) {
-      setStatusMessage(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleLogout() {
     if (!token) {
@@ -397,8 +325,8 @@ export function AppProvider({ children }) {
     setBounties,
     loading,
     torrentMeta,
-    rewardSats,
-    setRewardSats,
+    rewardAmountUsdc,
+    setRewardAmountUsdc,
     bountyDescription,
     setBountyDescription,
     dragOver,
@@ -406,14 +334,11 @@ export function AppProvider({ children }) {
     refreshBounties,
     handleChallengeRequest,
     handleVerify,
-    handleDemoLogin,
     handleDrop,
     handleFileSelect,
     clearTorrent,
     handleCreateBounty,
     handleHuntBounty,
-    handleSyncBounty,
-    handleFundEscrow,
     handleLogout,
     mergeBounty,
     openBounties,

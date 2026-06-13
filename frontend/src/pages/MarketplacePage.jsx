@@ -44,7 +44,7 @@ export default function MarketplacePage() {
     } else if (sort === "oldest") {
       list.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     } else if (sort === "reward") {
-      list.sort((a, b) => b.rewardSats - a.rewardSats);
+      list.sort((a, b) => (b.rewardAmountUnits ?? 0) - (a.rewardAmountUnits ?? 0));
     }
 
     return list;
@@ -58,7 +58,7 @@ export default function MarketplacePage() {
           <h2>Browse resurrection bounties</h2>
         </div>
         <p className="muted-copy">
-          Filter by status, search by title or info hash, then open a bounty to fund, hunt, or sync escrow.
+          Filter by status, search by title or info hash, then open a bounty to fund, hunt, or verify delivery.
           {!token ? " Connect a wallet to take actions." : null}
         </p>
 

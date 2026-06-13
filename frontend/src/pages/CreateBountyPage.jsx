@@ -7,8 +7,8 @@ export default function CreateBountyPage() {
     token,
     loading,
     torrentMeta,
-    rewardSats,
-    setRewardSats,
+    rewardAmountUsdc,
+    setRewardAmountUsdc,
     bountyDescription,
     setBountyDescription,
     dragOver,
@@ -36,7 +36,7 @@ export default function CreateBountyPage() {
           <h2>Resurrect a dead torrent</h2>
         </div>
         <p className="muted-copy">
-          Upload a real .torrent file, set the reward, then let the server fund the requester escrow from Polar.
+          Upload a real .torrent file and set the USDC reward that will settle through Arc.
           You will jump to the bounty page when it is created.
         </p>
 
@@ -131,20 +131,21 @@ export default function CreateBountyPage() {
             />
           </label>
           <label className="field">
-            <span>Reward (sats)</span>
+            <span>Reward (USDC)</span>
             <input
-              min="1"
+              min="0.000001"
+              step="0.000001"
               type="number"
-              value={rewardSats}
-              onChange={(e) => setRewardSats(e.target.value)}
+              value={rewardAmountUsdc}
+              onChange={(e) => setRewardAmountUsdc(e.target.value)}
               required
             />
           </label>
           <label className="field">
-            <span>Collateral bond</span>
+            <span>Settlement token</span>
             <input
               readOnly
-              value={`${Math.max(1, Math.ceil(Number.parseInt(rewardSats || "0", 10) * 0.3))} sats (30%)`}
+              value="USDC on Arc"
               className="muted-input"
             />
           </label>
@@ -153,7 +154,7 @@ export default function CreateBountyPage() {
             disabled={!token || loading || !torrentMeta}
             type="submit"
           >
-            {torrentMeta ? "Create & Fund Bounty" : "Upload .torrent file"}
+            {torrentMeta ? "Create Bounty" : "Upload .torrent file"}
           </button>
         </form>
       </section>
