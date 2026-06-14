@@ -11,6 +11,27 @@ The production direction is:
 5. Arc becomes the USDC escrow and settlement layer.
 6. After verified delivery, the recovered file is archived to Walrus and served through the ENS resource record.
 
+## Build Provenance
+
+This repository started before the hackathon as a peer-to-peer wallet and torrent recovery prototype:
+
+- `5ff6c88` initialized the p2p wallet project.
+- `c9c1599` added the original Bitcoin Lightning-backed escrow scaffolding.
+- `733f9dc` through `48eb912` added wallet auth and wallet-linked profiles.
+- `aad33ac`, `db21c25`, and `7ba6159` added the first bounty backend and escrow state syncing.
+- `da8e198` and `e2ee1d0` scaffolded the first Vite/React frontend.
+- `b7acfe5` through `e0125aa` added early delivery/proof protocol experiments.
+
+During the hackathon, the project was rebuilt around ENS, Arc, Walrus, and browser-to-browser recovery:
+
+- ENS resource location: `70ede0b`, `8bdd0a6`, `df252a5`, `d58a124`, `7bd41dd`, and `07f3a2c` moved the app to ENS wildcard/CCIP Read resolution instead of explicit subdomain writes.
+- Arc escrow: `3d0fcf1` removed the Bitcoin Lightning path, then `161122f`, `f31382e`, `4b56c03`, `5120da9`, `ed4e2b7`, and `b6da9ab` added the Arc USDC escrow contract, read service, transaction endpoints, and wallet-signed lifecycle.
+- Walrus archival: `4cb4791` added verified file upload to Walrus, and `1b948c5` added ENS/Walrus archive downloads for already-recovered torrents.
+- WebTorrent recovery: `049669d`, `feb73f0`, `e5cd53d`, `a40524f`, `5be22be`, `e03a02c`, and `be83a06` added the in-app tracker, native seeding/download flow, tracker diagnostics, and peer connectivity hardening.
+- Brave wallet and demo hardening: `089741e`, `fd91e64`, and `67774db` reduced wallet prompt friction and normalized Arc transaction gas fields.
+- ENS wallet identities and demo data: `88d0914` assigned reusable wildcard ENS names to wallet sessions, while `885f659` and `b53b325` added the seeded demo bounties and old-escrow cleanup.
+- Final UX polish: `d0407cd`, `8da7685`, `c163f49`, `e38b596`, and `a39494e` shaped the pixel-themed app, root-domain routing, ENS search, and separate info page.
+
 ## Requirements
 
 - Node `>=20`
